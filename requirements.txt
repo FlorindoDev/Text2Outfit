@@ -1,0 +1,10 @@
+torch>=2.2
+torchvision>=0.17
+transformers>=4.41,<4.50
+open_clip_torch>=2.26.1
+sentencepiece>=0.2
+ftfy>=6.2
+pydantic>=2.7
+Pillow>=10.0
+datasets>=2.19
+huggingface-hub>=0.23

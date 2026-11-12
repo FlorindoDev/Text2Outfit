@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+.venv/
+.cache/
+datasets/
+precomputed_embeddings/

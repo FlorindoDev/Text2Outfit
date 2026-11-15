@@ -1,6 +1,13 @@
 """Image/text representations and trainable embedding networks."""
 
 from .category_query_embeddings import OUTFIT_CATEGORIES, CategoryQueryEmbeddings
+from .losses import (
+    category_classification_loss,
+    compatibility_loss,
+    composition_loss,
+    fine_grained_category_loss,
+    outfit_retrieval_loss,
+)
 from .mlp import MLP
 
 from .multimodal_representation import (
@@ -26,4 +33,9 @@ __all__ = [
     "OutfitSeedEncoder",
     "TextEncoder",
     "VisualEncoder",
+    "category_classification_loss",
+    "compatibility_loss",
+    "composition_loss",
+    "fine_grained_category_loss",
+    "outfit_retrieval_loss",
 ]

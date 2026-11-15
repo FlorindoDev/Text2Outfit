@@ -114,7 +114,7 @@ Il tokenizer tronca a `max_position_embeddings` del checkpoint.
 Marqo usa `get_image_features(..., normalize=False)` e
 `get_text_features(..., normalize=False)`, poi applica L2 alle feature restituite.
 
-Con `trainable=False`, FashionCLIP disattiva i gradienti dei parametri e mantiene
+FashionCLIP usa `trainable=False` per default: disattiva i gradienti dei parametri e mantiene
 il backbone in evaluation anche dopo `.train()`. Marqo applica sempre questo
 comportamento. Per l’inferenza si usa anche `torch.inference_mode()`.
 

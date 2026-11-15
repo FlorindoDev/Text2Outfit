@@ -32,7 +32,7 @@ class FashionCLIPTextEncoder(TextEncoder):
         self,
         model_name: str = DEFAULT_MODEL_NAME,
         *,
-        trainable: bool = True,
+        trainable: bool = False,
     ) -> None:
         super().__init__()
         try:

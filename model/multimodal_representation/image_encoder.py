@@ -31,11 +31,11 @@ class FashionCLIPVisualEncoder(VisualEncoder):
         self,
         model_name: str = DEFAULT_MODEL_NAME,
         *,
-        trainable: bool = True,
+        trainable: bool = False,
     ) -> None:
         super().__init__()
         try:
-            from transformers import CLIPVisionModelWithProjection
+            from transformers.models.clip.modeling_clip import CLIPVisionModelWithProjection
         except ImportError as error:
             raise ImportError(
                 "FashionCLIPVisualEncoder requires the 'transformers' package"

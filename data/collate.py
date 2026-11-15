@@ -37,4 +37,6 @@ def _require_non_empty(examples: Sequence[object]) -> None:
 
 
 def _to_model_item(item: FashionItem) -> OutfitItem:
+    if item.embedding is not None:
+        return OutfitItem(embedding=item.embedding)
     return OutfitItem(image=item.image, text=item.description)

@@ -29,6 +29,8 @@ from .types import (
     OutfitBatch,
     OutfitExample,
     OutfitItem,
+    SeedExample,
+    SeedTrainingBatch,
 )
 
 __all__ = [
@@ -47,6 +49,8 @@ __all__ = [
     "OutfitBatch",
     "OutfitExample",
     "OutfitItem",
+    "SeedExample",
+    "SeedTrainingBatch",
     "build_fashion_clip_transform",
     "build_marqo_fashion_siglip_transform",
     "collate_items",

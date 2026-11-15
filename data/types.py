@@ -46,20 +46,29 @@ class FashionItem:
     """One catalog item before conversion to the model input API."""
 
     item_id: str
-    image: Tensor
+    image: Tensor | None
     description: str
     category: str
     subcategory: str | None = None
+    embedding: Tensor | None = None
 
     def __post_init__(self) -> None:
         if not self.item_id.strip():
             raise ValueError("item_id cannot be empty")
-        if self.image.ndim != 3 or self.image.size(0) != 3:
-            raise ValueError("image must have shape [3, height, width]")
-        if not torch.is_floating_point(self.image):
-            raise TypeError("image must be a floating-point tensor")
-        if not bool(torch.isfinite(self.image).all()):
-            raise ValueError("image must contain only finite values")
+        if self.image is None and self.embedding is None:
+            raise ValueError("provide an image or precomputed item features")
+        if self.image is not None:
+            if self.image.ndim != 3 or self.image.size(0) != 3:
+                raise ValueError("image must have shape [3, height, width]")
+            if not torch.is_floating_point(self.image):
+                raise TypeError("image must be a floating-point tensor")
+            if not bool(torch.isfinite(self.image).all()):
+                raise ValueError("image must contain only finite values")
+        if self.embedding is not None:
+            if self.embedding.ndim != 1 or self.embedding.numel() == 0:
+                raise ValueError("embedding must be a non-empty feature vector")
+            if not torch.is_floating_point(self.embedding) or not bool(torch.isfinite(self.embedding).all()):
+                raise ValueError("embedding must contain finite floating-point values")
         if not self.description.strip():
             raise ValueError("description cannot be empty")
         if not self.category.strip():
@@ -126,13 +135,13 @@ class OutfitBatch:
         return OutfitBatch(
             outfit_ids=self.outfit_ids,
             outfits=tuple(
-                tuple(replace(item, image=item.image.pin_memory()) for item in outfit)
+                tuple(_pin_fashion_item(item) for item in outfit)
                 for outfit in self.outfits
             ),
             labels=self.labels.pin_memory(),
             negatives=tuple(
                 tuple(
-                    tuple(replace(item, image=item.image.pin_memory()) for item in group)
+                    tuple(_pin_fashion_item(item) for item in group)
                     for group in outfit_negatives
                 )
                 for outfit_negatives in self.negatives
@@ -170,3 +179,24 @@ def _pin_model_item(item: OutfitItem) -> OutfitItem:
             item.embedding.pin_memory() if item.embedding is not None else None
         ),
     )
+
+
+def _pin_fashion_item(item: FashionItem) -> FashionItem:
+    return replace(
+        item, image=item.image.pin_memory() if item.image is not None else None,
+        embedding=item.embedding.pin_memory() if item.embedding is not None else None,
+    )
+
+
+@dataclass(frozen=True)
+class SeedExample:
+    outfit: OutfitExample
+    prompt: str
+    seed: FashionItem
+
+
+@dataclass(frozen=True)
+class SeedTrainingBatch:
+    outfits: OutfitBatch
+    prompts: tuple[str, ...]
+    seeds: tuple[FashionItem, ...]

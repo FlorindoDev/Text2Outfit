@@ -371,6 +371,11 @@ I tipi definiti in [`types.py`](types.py) rappresentano questi tre livelli:
 | `OutfitExample` | Un singolo esempio del dataset: outfit, etichetta e negativi. Da questi capi viene ricavata anche la maschera. |
 | `OutfitBatch` | Più esempi raggruppati, mantenendo allineati i loro dati. |
 
+Per il training con seed, lo stesso file espone `SeedExample` (outfit,
+prompt e seed selezionato) e `SeedTrainingBatch` (`OutfitBatch`, tuple di
+prompt e seed). Questi tipi dati sono condivisi dal modello e dal training;
+il modello non importa moduli di `training`.
+
 ### Il singolo capo: `FashionItem`
 
 Ogni capo porta con sé i dati necessari per riconoscerlo e codificarlo:
@@ -378,10 +383,19 @@ Ogni capo porta con sé i dati necessari per riconoscerlo e codificarlo:
 | Campo | Tipo | Esempio o significato |
 |---|---|---|
 | `item_id` | `str` | ID del prodotto nel catalogo. |
-| `image` | `Tensor` floating point `[3, H, W]` | Immagine già trasformata per l'encoder. |
+| `image` | `Tensor \| None` floating point `[3, H, W]` | Immagine già trasformata per l'encoder, assente quando si usa la cache. |
 | `description` | `str` | Descrizione del capo, per esempio `"white cotton T-shirt"`. |
 | `category` | `str` | Una delle 11 categorie generali, per esempio `"tops"`. |
 | `subcategory` | `str \| None` | ID della categoria specifica di Polyvore, per esempio `"21"`. Negli esempi di outfit è obbligatoria. |
+| `embedding` | `Tensor \| None` floating point `[D_visual + D_text]` | Feature concatenate precomputate, prima della MLP item. |
+
+Un `FashionItem` deve avere un'immagine oppure feature precomputate. Nel
+training cached, `PolyvoreCatalog.get(item_id, embedding=features)` riusa i
+metadati senza decodificare immagini. `PolyvoreOutfitDataset` accetta
+`precomputed_embeddings`, una mappa ID-feature; `positive_only=True` filtra
+i target generativi e `seed=...` fissa il campionamento dei negativi per
+validation. Le impostazioni di default della pipeline dati restano raw e
+mantengono entrambe le label. Vedere la [guida training](../training/README.md).
 
 La categoria dice a quale gruppo appartiene il capo; la sottocategoria lo
 descrive a un livello più specifico. `subcategory` conserva il `category_id`

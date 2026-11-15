@@ -98,6 +98,19 @@ class OutfitDataTests(unittest.TestCase):
                     self.assertIsNotNone(negative.subcategory)
         self.assertEqual([item.item_id for item in dataset[1].items], ["t1", "s2"])
 
+    def test_precomputed_positive_outfits_skip_image_decoding_and_keep_fixed_negatives(self):
+        cache = {item_id: torch.randn(8) for item_id in self.metadata}
+        dataset = self.dataset(precomputed_embeddings=cache, positive_only=True, seed=17)
+        self.assertEqual(len(dataset), 1)
+        with patch("data.polyvore.catalog._decode_image", side_effect=AssertionError("unexpected image decode")):
+            first, second = dataset[0], dataset[0]
+        self.assertEqual(first.label, 1)
+        self.assertTrue(all(item.image is None and item.embedding is not None for item in first.items))
+        self.assertEqual([[item.item_id for item in group] for group in first.negatives],
+                         [[item.item_id for item in group] for group in second.negatives])
+        batch = collate_items(first.items)
+        self.assertTrue(all(item.embedding is not None and item.image is None for item in batch.model_items))
+
     def test_batch_keeps_multiple_items_per_category_and_boolean_masks(self):
         dataset = self.dataset()
         batch = next(iter(create_outfit_loader(dataset, config=LoaderConfig(batch_size=2))))

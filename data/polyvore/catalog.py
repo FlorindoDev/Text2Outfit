@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Protocol, cast
 
 from PIL import Image
+from torch import Tensor
 
 from data.transforms import ImageTransform
 from data.types import FashionItem
@@ -69,7 +70,7 @@ class PolyvoreCatalog:
     def __contains__(self, item_id: object) -> bool:
         return str(item_id) in self._row_by_item_id
 
-    def get(self, item_id: str) -> FashionItem:
+    def get(self, item_id: str, *, embedding: Tensor | None = None) -> FashionItem:
         """Load and transform one item, failing clearly for unknown identifiers."""
         normalized_id = str(item_id)
         try:
@@ -77,11 +78,13 @@ class PolyvoreCatalog:
         except KeyError as error:
             raise KeyError(f"unknown Polyvore item_id: {normalized_id}") from error
 
-        row = self._item_rows[row_index]
-        if not isinstance(row, Mapping):
-            raise TypeError(f"row for item {normalized_id} must be a mapping")
-        image = _decode_image(row.get("image"))
-        image_tensor = self._image_transform(image)
+        image_tensor = None
+        if embedding is None:
+            row = self._item_rows[row_index]
+            if not isinstance(row, Mapping):
+                raise TypeError(f"row for item {normalized_id} must be a mapping")
+            image = _decode_image(row.get("image"))
+            image_tensor = self._image_transform(image)
         metadata = self._metadata.get(
             normalized_id,
             _DEFAULT_METADATA,
@@ -93,6 +96,7 @@ class PolyvoreCatalog:
             description=metadata.description,
             category=metadata.category,
             subcategory=metadata.subcategory,
+            embedding=embedding,
         )
 
     def get_many(self, item_ids: Sequence[str]) -> tuple[FashionItem, ...]:
@@ -103,6 +107,12 @@ class PolyvoreCatalog:
         if item_id not in self:
             raise KeyError(f"unknown Polyvore item_id: {item_id}")
         return self._metadata.get(str(item_id), _DEFAULT_METADATA).category
+
+    def subcategory_for(self, item_id: str) -> str | None:
+        """Read a taxonomy label without decoding its image."""
+        if item_id not in self:
+            raise KeyError(f"unknown Polyvore item_id: {item_id}")
+        return self._metadata.get(str(item_id), _DEFAULT_METADATA).subcategory
 
 
 def load_outfit_token_index(path: str | Path) -> dict[str, str]:
@@ -164,7 +174,8 @@ def _extract_item_ids(item_rows: ItemRows) -> tuple[str, ...]:
         raw_ids = columnar_rows["item_id"]
     else:
         raw_ids = []
-        for row_index, row in enumerate(item_rows):
+        for row_index in range(len(item_rows)):
+            row = item_rows[row_index]
             if not isinstance(row, Mapping) or "item_id" not in row:
                 raise ValueError(f"item row {row_index} misses item_id")
             raw_ids.append(row["item_id"])

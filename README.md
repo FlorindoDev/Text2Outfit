@@ -4,6 +4,11 @@
 
 # Text2Outfit
 
+![Text2Outfit reference architecture: text-to-outfit (a) and seed-to-outfit (b)](doc/text2outfit-overview.png)
+
+*Figure 2 / Figura 2 — Reference architecture / Architettura di riferimento,
+[Zhai et al., Text2Outfit, ICCV 2025](https://openaccess.thecvf.com/content/ICCV2025/papers/Zhai_Text2Outfit_Controllable_Outfit_Generation_with_Multimodal_Language_Models_ICCV_2025_paper.pdf).*
+
 ## English
 
 A project for loading fashion items, precomputing FashionCLIP or Marqo
@@ -462,6 +467,25 @@ deep = MLP(input_dim=1024, output_dim=64, hidden_dims=[512, 256, 128])
 
 Usare input 1024 per FashionCLIP o 1536 per Marqo. La
 [guida MLP](model/mlp/README.md) mostra quattro reti diverse in un `ModuleDict`.
+
+### Training seed-to-outfit
+
+```bash
+python -m training.train_seed_to_outfit --epochs 10
+```
+
+Allena LoRA su Qwen3 e tutte le MLP usando retrieval, composizione e CP con
+OutfitTransformer congelato. Supporta item raw o cache precomputate e scarica
+automaticamente il codice CP mancante da GitHub e il solo checkpoint CP `best.pt`
+da Hugging Face, riutilizzando prima i file locali e la cache. Il modello è
+organizzato in `model/outfit/` e `model/compatibility/`. Il training salva
+checkpoint e grafici train/validation a ogni epoca. Percorsi CP, utilizzo
+della cache e ripresa sono nella [guida training](training/README.md).
+Il modello completo e tutte le istanziazioni sono in `model/`. I suoi default
+sono in [`model/config.py`](model/config.py); quelli del training sono in
+[`training/config.py`](training/config.py).
+La [tabella delle MLP](model/README.md#modello-completo-e-dimensioni-delle-mlp)
+mostra dimensioni e parametri; il riepilogo effettivo viene salvato in `architecture.txt`.
 
 ### Test
 

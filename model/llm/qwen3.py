@@ -9,19 +9,20 @@ from typing import cast
 import torch
 from torch import Tensor, nn
 
+from ..config import DEFAULT_MODEL_CONFIG
 from .base import LLM, _validate_prompts
 
 
 class Qwen3LLM(LLM):
     """Append eleven queries to each prompt and return their last-layer states."""
 
-    DEFAULT_MODEL_NAME = "Qwen/Qwen3-Embedding-8B"
+    DEFAULT_MODEL_NAME = DEFAULT_MODEL_CONFIG.llm_model_name
 
     def __init__(
         self,
         model_name: str | Path = DEFAULT_MODEL_NAME,
         *,
-        trainable: bool = False,
+        trainable: bool = DEFAULT_MODEL_CONFIG.llm_trainable,
         dtype: torch.dtype | None = None,
         cache_dir: str | Path | None = None,
     ) -> None:
@@ -59,6 +60,7 @@ class Qwen3LLM(LLM):
         if self._max_length <= len(self.categories):
             raise ValueError("Qwen3 context must leave room for the prompt and 11 queries")
         self._trainable = trainable
+        self.lora_settings: dict[str, int | float | bool] | None = None
         self.backbone.requires_grad_(trainable)
         if not trainable:
             self.backbone.eval()
@@ -119,6 +121,45 @@ class Qwen3LLM(LLM):
         )
         # In inference, keep only the query storage instead of retaining prompt states.
         return outputs.last_hidden_state[:, -num_queries:, :].clone()
+
+    def enable_lora(
+        self, *, rank: int = DEFAULT_MODEL_CONFIG.lora_rank,
+        alpha: int = DEFAULT_MODEL_CONFIG.lora_alpha,
+        dropout: float = DEFAULT_MODEL_CONFIG.lora_dropout,
+        gradient_checkpointing: bool = DEFAULT_MODEL_CONFIG.gradient_checkpointing,
+        target_modules: tuple[str, ...] = DEFAULT_MODEL_CONFIG.lora_target_modules,
+    ) -> None:
+        """Freeze base weights and train Q/K/V adapters without changing the forward."""
+        if self.lora_settings is not None:
+            raise ValueError("LoRA is already enabled")
+        if type(rank) is not int or rank <= 0 or type(alpha) is not int or alpha <= 0:
+            raise ValueError("LoRA rank and alpha must be positive integers")
+        if not 0 <= dropout < 1:
+            raise ValueError("LoRA dropout must be in [0, 1)")
+        if not target_modules or any(not name.strip() for name in target_modules):
+            raise ValueError("provide non-empty LoRA target module names")
+        from peft.mapping import inject_adapter_in_model
+        from peft.tuners.lora.config import LoraConfig
+
+        self.backbone.requires_grad_(False)
+        inject_adapter_in_model(LoraConfig(
+            r=rank, lora_alpha=alpha, lora_dropout=dropout,
+            target_modules=list(target_modules), bias="none",
+        ), self.backbone)
+        # Keep optimizer updates in FP32 even when the frozen backbone is BF16.
+        for parameter in self.backbone.parameters():
+            if parameter.requires_grad:
+                parameter.data = parameter.data.float()
+        if gradient_checkpointing:
+            self.backbone.gradient_checkpointing_enable(
+                gradient_checkpointing_kwargs={"use_reentrant": False},
+            )
+        self.lora_settings = dict(
+            rank=rank, alpha=alpha, dropout=dropout,
+            gradient_checkpointing=gradient_checkpointing,
+        )
+        self._trainable = True
+        self.train(self.training)
 
     def _validate_queries(self, queries: Tensor, batch_size: int) -> Tensor:
         if not isinstance(queries, Tensor) or not torch.is_floating_point(queries):

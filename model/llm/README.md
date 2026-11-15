@@ -24,7 +24,9 @@ hidden_states = llm(prompts, category_embeddings, seed_embeddings=None)
 | `seed_embeddings` | Opzionale: embedding seed floating point `[B, H]`; per un solo prompt anche `[H]`. |
 | Valore restituito | Un solo `Tensor [B, 11, H]`, anche con un solo prompt. |
 
-`H` è `llm.output_dim`: **4096** per il checkpoint predefinito. Il numero di
+`H` è `llm.output_dim`: **4096** per il checkpoint predefinito. Nel modello
+completo `ModelConfig.category_embedding_dim` deve coincidere con `H`.
+Il numero di
 prompt deve coincidere con il batch delle query. Il limite di contesto include
 il prompt, l'eventuale token seed e le 11 query; un input troppo lungo viene rifiutato senza
 troncare il testo. Query con dimensioni errate o valori non finiti sono rifiutate.
@@ -141,8 +143,20 @@ il gradiente verso le query esterne e il seed: puoi addestrarli insieme alle tue
 Il modulo adatta query e seed a dispositivo e dtype del backbone con operazioni
 differenziabili. L'output usa dispositivo e precisione del backbone.
 
-`trainable=True` rende allenabili tutti i pesi del backbone. Il modulo non
-installa adattatori LoRA: quella configurazione appartiene al training.
+`trainable=True` rende allenabili tutti i pesi del backbone. Per il fine-tuning
+LoRA, costruire invece Qwen congelato e chiamare:
+
+```python
+llm.enable_lora(rank=64, alpha=128, dropout=0.05, gradient_checkpointing=True)
+```
+
+Il metodo congela il backbone e inserisce adattatori PEFT sulle proiezioni
+Q/K/V, mantenendo il forward e la maschera delle categorie. Gli adattatori
+usano FP32; il gradient checkpointing è non rientrante. `train()` abilita il
+training degli adattatori senza sbloccare i pesi base. Servono le dipendenze
+PEFT del progetto. La [guida training](../../training/README.md) descrive
+optimizer, loss, checkpoint e ripresa; i checkpoint contengono tutti i pesi
+LoRA insieme alle query e alle MLP.
 Per la sola inferenza puoi racchiudere il forward in `torch.inference_mode()`;
 evitalo quando vuoi addestrare le query.
 

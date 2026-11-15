@@ -1,6 +1,8 @@
 torch>=2.2
 torchvision>=0.17
 transformers>=4.51.3,<4.52
+peft>=0.15.2,<0.16
+matplotlib>=3.8,<4
 open_clip_torch>=2.26.1
 sentencepiece>=0.2
 ftfy>=6.2

@@ -3,8 +3,9 @@
 from typing import Protocol
 
 from torch import Tensor, nn
+from ..config import SIGLIP_MODEL_NAME
 
-DEFAULT_MODEL_NAME = "Marqo/marqo-fashionSigLIP"
+DEFAULT_MODEL_NAME = SIGLIP_MODEL_NAME
 
 
 class _TextTower(Protocol):

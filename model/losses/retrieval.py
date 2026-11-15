@@ -6,6 +6,7 @@ import torch
 from torch import Tensor
 from torch.nn import functional as F
 
+from ..config import DEFAULT_MODEL_CONFIG
 from ._validation import floating_tensor, presence_mask
 
 
@@ -15,7 +16,7 @@ def outfit_retrieval_loss(
     negatives: Tensor,
     category_targets: Tensor,
     *,
-    temperature: float = 0.07,
+    temperature: float = DEFAULT_MODEL_CONFIG.temperature,
 ) -> Tensor:
     """InfoNCE con predizioni e positivi [B, K, D] e negativi [B, K, N, D]."""
     if isinstance(temperature, bool) or not isinstance(temperature, (int, float)):

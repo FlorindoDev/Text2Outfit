@@ -29,6 +29,12 @@ L'input puo avere forma `[D]`, `[batch, D]` o `[..., D]`: cambia solo l'ultima
 dimensione. Input, output e layer nascosti devono avere dimensioni intere
 positive; `hidden_dims=[]` crea una sola proiezione lineare.
 
+`mlp.dimensions` restituisce la tupla completa `(input, *hidden_dims, output)`.
+Per esempio `MLP(1024, 256, [512]).dimensions` è `(1024, 512, 256)`.
+Nel modello completo le cinque famiglie di MLP sono configurate separatamente
+in [`model/config.py`](../config.py); il builder e la tabella delle dimensioni
+sono descritti nella [guida del modello](../README.md#modello-completo-e-dimensioni-delle-mlp).
+
 `ModuleDict` registra i parametri di tutte le reti, quindi si puo passare
 `networks.parameters()` a un optimizer. Ogni MLP puo anche essere usato,
 salvato con `state_dict()` e addestrato separatamente. Per leggere gli

@@ -54,7 +54,7 @@ def fine_grained_category_loss(
             category_logits, targets, ignore_index=-100, reduction="sum",
         ))
 
-    return sum(category_losses) / batch_size
+    return sum(category_losses[1:], category_losses[0]) / batch_size
 
 
 def composition_loss(

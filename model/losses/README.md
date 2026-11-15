@@ -44,8 +44,7 @@ flowchart TD
     ITEM["Immagine e testo degli articoli"] --> ENCODER["MultimodalEncoder: embedding f"]
     RET --> RL["Outfit Retrieval Loss"]
     ENCODER --> RL
-    RET --> PROJ["MLP W_cp"]
-    PROJ --> C["Modello C congelato"]
+    RET --> C["Modello C congelato: ingresso diretto a 1024 componenti"]
     C --> CP["CP Loss: negativo dello score"]
     H --> HC["MLP presenza: un logit per categoria"]
     H --> FG["MLP sottocategoria: C_i logits"]
@@ -142,11 +141,12 @@ sono escluse dal confronto.
 ## Compatibility Loss: CP
 
 Questa loss valuta gli embedding predetti come insieme. Il modello di
-compatibilità $C$, già addestrato, assegna uno score all'outfit. L'adattatore
-MLP $W_{cp}$ porta gli embedding $e$ nello spazio di input richiesto da $C$:
+compatibilità $C$, già addestrato, assegna uno score all'outfit. In questa
+implementazione gli embedding retrieval $e$ entrano direttamente in $C$,
+senza adattatore; la loro dimensione deve coincidere con l'ingresso CP:
 
 $$
-\mathcal L_{cp}(e)=-C(W_{cp}(e)).
+\mathcal L_{cp}(e)=-C(e).
 $$
 
 `compatibility_loss` riceve gli score già calcolati e restituisce la loro
@@ -159,8 +159,9 @@ media cambiata di segno, conservando il gradiente.
 | $0.0$ | $0.0$ |
 
 Minimizzare la loss massimizza lo score. Il minimo non deve essere zero:
-con score in $[0,1]$ è $-1$. La variante $1-C(W_{cp}(e))$ avrebbe gli stessi
-gradienti, ma qui si usa il negativo dello score dell'Eq. (4) del paper.
+con score in $[0,1]$ è $-1$. La variante $1-C(e)$ avrebbe gli stessi
+gradienti. L'Eq. (4) del paper include anche una proiezione $W_{cp}$, omessa
+in questa variante: l'allineamento con il CP viene appreso dalle teste retrieval.
 
 Uno score pari a $0.8$ può essere mostrato come $80\%$, ma alla loss si
 passa il valore $0.8$. Il modulo rifiuta valori fuori da $[0,1]$ e non
@@ -170,7 +171,7 @@ Lo score non è necessariamente una probabilità calibrata.
 Il chiamante congela $C$ con `requires_grad_(False)` e lo imposta in `eval()`.
 Non usare `torch.no_grad()`, `torch.inference_mode()` o `detach()` nel ramo
 CP durante il training: i gradienti devono attraversare $C$ per aggiornare
-$W_{cp}$ e il ramo predittivo, anche se i pesi di $C$ restano fermi. La loss
+il ramo predittivo, anche se i pesi di $C$ restano fermi. La loss
 non carica né congela automaticamente il modello.
 
 Si lavora direttamente sugli embedding predetti, senza passare attraverso

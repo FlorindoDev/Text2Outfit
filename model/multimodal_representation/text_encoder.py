@@ -6,6 +6,7 @@ from typing import Literal, Protocol, cast
 
 from torch import Tensor, nn
 from torch.nn import functional as F
+from ..config import DEFAULT_MODEL_CONFIG, FASHIONCLIP_MODEL_NAME
 
 from ._marqo import DEFAULT_MODEL_NAME, _MarqoFeatures, _load_backbone, _positive_dimension
 
@@ -26,17 +27,18 @@ class TextEncoder(nn.Module, ABC):
 class FashionCLIPTextEncoder(TextEncoder):
     """FashionCLIP text tower returning L2-normalized CLIP embeddings."""
 
-    DEFAULT_MODEL_NAME = "patrickjohncyh/fashion-clip"
+    DEFAULT_MODEL_NAME = FASHIONCLIP_MODEL_NAME
 
     def __init__(
         self,
         model_name: str = DEFAULT_MODEL_NAME,
         *,
-        trainable: bool = False,
+        trainable: bool = DEFAULT_MODEL_CONFIG.encoder_trainable,
     ) -> None:
         super().__init__()
         try:
-            from transformers import AutoTokenizer, CLIPTextModelWithProjection
+            from transformers.models.auto.tokenization_auto import AutoTokenizer
+            from transformers.models.clip.modeling_clip import CLIPTextModelWithProjection
         except ImportError as error:
             raise ImportError(
                 "FashionCLIPTextEncoder requires the 'transformers' package"

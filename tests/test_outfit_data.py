@@ -136,7 +136,7 @@ class OutfitDataTests(unittest.TestCase):
         self.assertEqual(batch.categories, ("jewelry",))
         self.assertEqual(batch.item_ids, ("j1",))
         self.assertEqual(batch.as_single_item_outfits()[0][0].text, item.description)
-        from model.category_query_embeddings import OUTFIT_CATEGORIES as query_categories
+        from model.outfit.category_query_embeddings import OUTFIT_CATEGORIES as query_categories
         self.assertIs(query_categories, OUTFIT_CATEGORIES)
 
     def test_invalid_compatibility_data_fails_clearly(self):

@@ -5,6 +5,7 @@ from typing import cast
 
 from torch import Tensor, nn
 from torch.nn import functional as F
+from ..config import DEFAULT_MODEL_CONFIG, FASHIONCLIP_MODEL_NAME
 
 from ._marqo import DEFAULT_MODEL_NAME, _MarqoFeatures, _load_backbone, _positive_dimension
 
@@ -25,13 +26,13 @@ class VisualEncoder(nn.Module, ABC):
 class FashionCLIPVisualEncoder(VisualEncoder):
     """FashionCLIP ViT image tower returning L2-normalized CLIP embeddings."""
 
-    DEFAULT_MODEL_NAME = "patrickjohncyh/fashion-clip"
+    DEFAULT_MODEL_NAME = FASHIONCLIP_MODEL_NAME
 
     def __init__(
         self,
         model_name: str = DEFAULT_MODEL_NAME,
         *,
-        trainable: bool = False,
+        trainable: bool = DEFAULT_MODEL_CONFIG.encoder_trainable,
     ) -> None:
         super().__init__()
         try:

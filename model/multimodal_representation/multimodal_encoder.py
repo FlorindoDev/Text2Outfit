@@ -14,10 +14,14 @@ class MultimodalEncoder(nn.Module):
     """Feed visual-then-text embeddings to a configurable MLP head."""
 
     def __init__(
-        self, visual_encoder: VisualEncoder, text_encoder: TextEncoder, mlp: MLP
+        self, visual_encoder: VisualEncoder | None, text_encoder: TextEncoder | None, mlp: MLP
     ) -> None:
         super().__init__()
-        if mlp.input_dim != visual_encoder.output_dim + text_encoder.output_dim:
+        if (visual_encoder is None) != (text_encoder is None):
+            raise ValueError("provide both encoders, or neither for precomputed features")
+        if visual_encoder is not None and text_encoder is not None and (
+            mlp.input_dim != visual_encoder.output_dim + text_encoder.output_dim
+        ):
             raise ValueError("MLP input_dim must match the sum of visual and text output_dim")
         self.visual_encoder = visual_encoder
         self.text_encoder = text_encoder
@@ -27,7 +31,24 @@ class MultimodalEncoder(nn.Module):
     def output_dim(self) -> int:
         return self.mlp.output_dim
 
-    def forward(self, images: Tensor, descriptions: Sequence[str]) -> Tensor:
+    def forward(
+        self, images: Tensor | None = None, descriptions: Sequence[str] | None = None,
+        *, precomputed: Tensor | None = None,
+    ) -> Tensor:
+        """Project raw items or cached [visual_L2, text_L2] features through the MLP."""
+        if precomputed is not None:
+            if images is not None or descriptions is not None:
+                raise ValueError("provide raw inputs or precomputed features, not both")
+            if precomputed.ndim != 2 or precomputed.size(0) == 0 or precomputed.size(1) != self.mlp.input_dim:
+                raise ValueError(f"precomputed must have shape [items, {self.mlp.input_dim}]")
+            if not torch.is_floating_point(precomputed) or not bool(torch.isfinite(precomputed).all()):
+                raise ValueError("precomputed features must be finite floating-point values")
+            weights = next(self.mlp.parameters())
+            return self.mlp(precomputed.to(device=weights.device, dtype=weights.dtype))
+        if images is None or descriptions is None:
+            raise ValueError("provide images and descriptions or precomputed features")
+        if self.visual_encoder is None or self.text_encoder is None:
+            raise ValueError("raw inputs require visual and text encoders")
         if images.ndim != 4:
             raise ValueError("images must have shape [items, channels, height, width]")
         if images.size(0) != len(descriptions):

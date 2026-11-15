@@ -9,9 +9,9 @@ import torch
 from torch import Tensor, nn
 
 from .category_query_embeddings import CategoryQueryEmbeddings
-from .llm import LLM
-from .llm.base import _validate_prompts
-from .mlp import MLP
+from ..llm import LLM
+from ..llm.base import _validate_prompts
+from ..mlp import MLP
 from .outfit_seed_encoder import OutfitSeedEncoder
 
 
@@ -75,13 +75,20 @@ class SeedToOutfitModel(nn.Module):
         *,
         seed_images: Tensor | None = None,
         seed_texts: str | Sequence[str] | None = None,
+        seed_features: Tensor | None = None,
     ) -> SeedToOutfitOutput:
         """Use exactly one seed modality, with one seed for each prompt."""
         texts = _validate_prompts(prompts)
-        if (seed_images is None) == (seed_texts is None):
-            raise ValueError("provide exactly one of seed_images or seed_texts")
+        if sum(value is not None for value in (seed_images, seed_texts, seed_features)) != 1:
+            raise ValueError("provide exactly one of seed_images, seed_texts or seed_features")
         seed_embeddings = None
-        if seed_images is not None:
+        if seed_features is not None:
+            if self.seed_encoder is None:
+                raise ValueError("seed_encoder is required for seed_features")
+            if seed_features.ndim != 2 or seed_features.size(0) != len(texts):
+                raise ValueError("provide one precomputed visual seed per prompt")
+            seed_embeddings = self.seed_encoder(precomputed=seed_features)
+        elif seed_images is not None:
             if self.seed_encoder is None:
                 raise ValueError("seed_encoder is required for seed_images")
             if not isinstance(seed_images, Tensor) or seed_images.ndim not in (3, 4):

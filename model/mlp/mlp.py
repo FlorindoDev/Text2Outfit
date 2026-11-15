@@ -39,3 +39,8 @@ class MLP(nn.Module):
         if inputs.ndim == 0 or inputs.size(-1) != self.input_dim:
             raise ValueError(f"inputs must have shape [..., {self.input_dim}]")
         return self.layers(inputs)
+
+    @property
+    def dimensions(self) -> tuple[int, ...]:
+        """Widths of every Linear layer boundary, including input and output."""
+        return (self.input_dim, *self.hidden_dims, self.output_dim)

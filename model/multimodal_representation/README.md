@@ -81,7 +81,7 @@ Esempio concettuale con input già preparati:
 ```python
 from model import MLP, MultimodalEncoder
 
-mlp = MLP(visual_encoder.output_dim + text_encoder.output_dim, 256, hidden_dims=[512, 256])
+mlp = MLP(visual_encoder.output_dim + text_encoder.output_dim, 1024, hidden_dims=[512])
 encoder = MultimodalEncoder(visual_encoder, text_encoder, mlp)
 embeddings = encoder(images, descriptions)
 ```
@@ -149,6 +149,16 @@ dai pesi appresi. L'MLP parte con pesi casuali e va addestrato.
 Lo script di precomputazione salva le feature concatenate prima della testa,
 cosi possono essere riutilizzate durante il training con `encoder.mlp`.
 
+`MultimodalEncoder` accetta anche `encoder(precomputed=features)`, con tensore
+floating point `[N, mlp.input_dim]` contenente visivo L2 seguito da testo L2.
+La MLP viene sempre eseguita e conserva i gradienti. I tensori già proiettati
+dalla MLP non sono una cache valida per questo ingresso.
+
+Per usare solo la cache senza caricare encoder, costruire
+`MultimodalEncoder(None, None, MLP(1024, 1024, hidden_dims=(512,)))` (default FashionCLIP).
+Per usare input raw, fornire entrambi gli encoder come prima. Il forward
+rifiuta input raw e precomputati forniti insieme.
+
 ## Esempi
 
 ### FashionCLIP
@@ -168,10 +178,10 @@ images = transform(image).unsqueeze(0).to(device)
 encoder = MultimodalEncoder(
     FashionCLIPVisualEncoder(trainable=False),
     FashionCLIPTextEncoder(trainable=False),
-    MLP(input_dim=1024, output_dim=256, hidden_dims=[512, 256]),
+    MLP(input_dim=1024, output_dim=1024, hidden_dims=[512]),
 ).to(device).eval()
 with torch.inference_mode():
-    embeddings = encoder(images, ["white shirt"])  # [1, 256]
+    embeddings = encoder(images, ["white shirt"])  # [1, 1024]
 ```
 
 ### Marqo FashionSigLIP
@@ -196,10 +206,10 @@ visual_encoder = MarqoFashionSigLIPVisualEncoder().eval()
 text_encoder = MarqoFashionSigLIPTextEncoder(
     backbone=visual_encoder.backbone,
 ).eval()
-mlp = MLP(input_dim=1536, output_dim=256, hidden_dims=[768, 256])
+mlp = MLP(input_dim=1536, output_dim=1024, hidden_dims=[512])
 encoder = MultimodalEncoder(visual_encoder, text_encoder, mlp).eval()
 with torch.inference_mode():
-    embeddings = encoder(images, ["white shirt"])  # [1, 256]
+    embeddings = encoder(images, ["white shirt"])  # [1, 1024]
 ```
 
 ## Modularità e limiti

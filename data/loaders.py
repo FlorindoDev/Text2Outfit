@@ -1,4 +1,4 @@
-"""DataLoader factories for fashion items."""
+"""DataLoader factories for fashion items and outfits."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from data.collate import collate_items
+from data.collate import collate_items, collate_outfits
 from data.polyvore.catalog import PolyvoreCatalog
 from data.polyvore.download import (
     DEFAULT_DATASET_ROOT,
@@ -21,7 +21,7 @@ from data.polyvore.download import (
 )
 from data.polyvore.item_dataset import PolyvoreItemDataset
 from data.transforms import ImageTransform
-from data.types import FashionItem
+from data.types import FashionItem, OutfitExample
 
 
 @dataclass(frozen=True)
@@ -58,6 +58,21 @@ def create_item_loader(
     return _create_loader(
         dataset,
         collate_fn=collate_items,
+        config=config,
+        shuffle=shuffle,
+    )
+
+
+def create_outfit_loader(
+    dataset: Dataset[OutfitExample],
+    *,
+    config: LoaderConfig | None = None,
+    shuffle: bool = False,
+) -> DataLoader[Any]:
+    """Create batches with labels, per-item negatives and 11-category masks."""
+    return _create_loader(
+        dataset,
+        collate_fn=collate_outfits,
         config=config,
         shuffle=shuffle,
     )

@@ -10,7 +10,7 @@ from typing import Protocol, TypeVar
 from torch.utils.data import Dataset
 
 from .transforms import ImageTransform
-from .types import FashionItem
+from .types import FashionItem, OutfitExample
 
 DEFAULT_DATASET_NAME = "polyvore"
 _Item_co = TypeVar("_Item_co", covariant=True)
@@ -115,6 +115,14 @@ class DatasetSource(Protocol):
         request: DatasetRequest,
         image_transform: ImageTransform,
     ) -> Dataset[FashionItem]: ...
+
+    def outfit_dataset(
+        self,
+        request: DatasetRequest,
+        image_transform: ImageTransform,
+        *,
+        negatives_per_item: int = 4,
+    ) -> Dataset[OutfitExample]: ...
 
     def download(self, request: DatasetDownloadRequest) -> Path: ...
 

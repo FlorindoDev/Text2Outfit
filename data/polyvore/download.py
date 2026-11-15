@@ -34,6 +34,7 @@ class PolyvoreSplit(str, Enum):
 
 class PolyvoreTask(str, Enum):
     ITEMS = "items"
+    OUTFITS = "outfits"
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,8 @@ class PolyvoreResources:
 
     item_rows: ItemRows | None = None
     metadata_path: Path | None = None
+    outfits_path: Path | None = None
+    compatibility_path: Path | None = None
 
 
 POLYVORE_DATASET_ID = "mvasil/polyvore-outfits"
@@ -59,7 +62,7 @@ def download_polyvore_resources(
     include_metadata: bool | None = None,
 ) -> PolyvoreResources:
     """Load local resources first, downloading only missing files."""
-    _coerce_enum(task, PolyvoreTask, "task")
+    selected_task = _coerce_enum(task, PolyvoreTask, "task")
     selected_variant = _coerce_enum(variant, PolyvoreVariant, "variant")
     selected_split = _coerce_enum(split, PolyvoreSplit, "split")
     selected_cache = str(cache_dir) if cache_dir is not None else None
@@ -88,9 +91,30 @@ def download_polyvore_resources(
         )
         _verify_file(metadata_path, "item metadata")
 
+    outfits_path = None
+    compatibility_path = None
+    if selected_task is PolyvoreTask.OUTFITS:
+        resolve_arguments = {
+            "dataset_root": selected_root,
+            "token": token,
+            "cache_dir": selected_cache,
+        }
+        outfits_path = _resolve_file(
+            f"{selected_variant.value}/{selected_split.file_stem}.json",
+            **resolve_arguments,
+        )
+        compatibility_path = _resolve_file(
+            f"{selected_variant.value}/compatibility_{selected_split.file_stem}.txt",
+            **resolve_arguments,
+        )
+        _verify_file(outfits_path, "outfit mapping")
+        _verify_file(compatibility_path, "compatibility labels")
+
     return PolyvoreResources(
         item_rows=item_rows,
         metadata_path=metadata_path,
+        outfits_path=outfits_path,
+        compatibility_path=compatibility_path,
     )
 
 

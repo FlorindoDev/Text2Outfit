@@ -10,6 +10,7 @@
 - [`transforms.py`: preprocessing delle immagini](#transformspy-preprocessing-delle-immagini)
 - [`collate.py`: costruzione dei batch](#collatepy-costruzione-dei-batch)
 - [`loaders.py`: configurazione dei DataLoader](#loaderspy-configurazione-dei-dataloader)
+- [Outfit etichettati e negativi per retrieval](#outfit-etichettati-e-negativi-per-retrieval)
 - [Dataset disponibili](#dataset-disponibili)
 - [Dataset Polyvore](#dataset-polyvore)
 
@@ -18,11 +19,12 @@
 | File | Responsabilità |
 |---|---|
 | `__init__.py` | Espone l’API pubblica del package `data`. |
+| `categories.py` | Definisce l'ordine comune delle 11 categorie, condiviso con le query del modello. |
 | `types.py` | Definisce item e batch condivisi. |
 | `source.py` | Definisce source, split, richieste e registry indipendenti dal dataset concreto. |
 | `transforms.py` | Prepara le immagini per FashionCLIP o Marqo FashionSigLIP. |
 | `collate.py` | Unisce gli esempi e li converte nell’input pubblico del modello. |
-| `loaders.py` | Configura i `DataLoader` per singoli articoli. |
+| `loaders.py` | Configura i `DataLoader` per singoli articoli e outfit etichettati. |
 | `polyvore/` | Interpreta risorse e identificatori di Polyvore Outfits. |
 
 ## Flusso complessivo
@@ -84,9 +86,11 @@ stessi tipi senza richiedere modifiche al modello.
 
 | Concetto | Contenuto |
 |---|---|
-| `FashionItem` | Un articolo con ID, immagine trasformata, descrizione e categoria. |
+| `FashionItem` | Un articolo con ID, immagine trasformata, descrizione, categoria e sottocategoria. |
 | `OutfitItem` | Immagine e testo insieme, oppure un embedding precomputato monodimensionale. |
 | `ItemBatch` | Articoli indipendenti con ID e categorie nello stesso ordine. |
+| `OutfitExample` | Un outfit, etichetta 0/1 e un gruppo di negativi per ogni capo. |
+| `OutfitBatch` | Outfit e negativi di lunghezza variabile, etichette `[B]` e maschera `[B, 11]`. |
 
 ### Esempio di input e output
 
@@ -351,6 +355,191 @@ Output
 
 Il chiamante vede soltanto il contratto comune, senza conoscere i file di
 origine. `loaders.py` trasforma poi questi articoli in batch.
+
+## Outfit etichettati e negativi per retrieval
+
+Un **esempio** contiene un outfit completo, la sua etichetta 0/1 e alcune
+alternative per ciascun capo. Un **batch** raccoglie più esempi per elaborarli
+insieme. Quindi `batch_size=8` significa fino a 8 outfit, ciascuno con i propri
+capi, etichetta, negativi e maschera delle categorie.
+
+I tipi definiti in [`types.py`](types.py) rappresentano questi tre livelli:
+
+| Tipo | Che cosa rappresenta |
+|---|---|
+| `FashionItem` | Un singolo articolo, per esempio una maglietta. È usato sia per i capi dell'outfit sia per le alternative. |
+| `OutfitExample` | Un singolo esempio del dataset: outfit, etichetta e negativi. Da questi capi viene ricavata anche la maschera. |
+| `OutfitBatch` | Più esempi raggruppati, mantenendo allineati i loro dati. |
+
+### Il singolo capo: `FashionItem`
+
+Ogni capo porta con sé i dati necessari per riconoscerlo e codificarlo:
+
+| Campo | Tipo | Esempio o significato |
+|---|---|---|
+| `item_id` | `str` | ID del prodotto nel catalogo. |
+| `image` | `Tensor` floating point `[3, H, W]` | Immagine già trasformata per l'encoder. |
+| `description` | `str` | Descrizione del capo, per esempio `"white cotton T-shirt"`. |
+| `category` | `str` | Una delle 11 categorie generali, per esempio `"tops"`. |
+| `subcategory` | `str \| None` | ID della categoria specifica di Polyvore, per esempio `"21"`. Negli esempi di outfit è obbligatoria. |
+
+La categoria dice a quale gruppo appartiene il capo; la sottocategoria lo
+descrive a un livello più specifico. `subcategory` conserva il `category_id`
+originale come stringa. Per usarlo come target della classificazione
+fine-grained occorre una mappatura fissa da questi ID agli indici della testa,
+uguale per training, validation e test.
+
+`OutfitItem`, presente nello stesso file, è il formato di input del modello:
+contiene immagine e testo oppure un embedding. I capi di `OutfitExample` e
+`OutfitBatch` sono invece oggetti `FashionItem`, che conservano anche ID,
+categoria e sottocategoria.
+
+### Il singolo esempio: `OutfitExample`
+
+`dataset[0]` restituisce un esempio con questi dati:
+
+| Campo | Tipo | Significato |
+|---|---|---|
+| `outfit_id` | `str` | Riferimento alla riga sorgente, per esempio `"compatibility_train:1"`. |
+| `items` | `tuple[FashionItem, ...]` | Tutti i capi che compongono l'outfit, nel loro ordine originale. |
+| `label` | `int` | `1` se l'outfit è compatibile, `0` se è incompatibile. Riguarda l'intero outfit. |
+| `negatives` | `tuple[tuple[FashionItem, ...], ...]` | Un gruppo di alternative per ciascun capo di `items`, nello stesso ordine. |
+| `category_mask` | `Tensor` booleano `[11]` | Proprietà calcolata dai capi: indica quali categorie sono presenti. |
+
+Per esempio, un outfit con maglietta, jeans e sneakers può essere rappresentato
+così. I nomi indicano oggetti `FashionItem`; mostriamo due negativi per capo:
+
+```text
+OutfitExample
+  outfit_id: "compatibility_train:1"
+  items:     (maglietta_A, jeans_B, sneakers_C)
+  label:     1
+
+  negatives:
+    per items[0], maglietta_A → (camicia_D, maglietta_E)   categoria tops
+    per items[1], jeans_B     → (gonna_F, pantaloni_G)    categoria bottoms
+    per items[2], sneakers_C  → (sandali_H, sneakers_I)   categoria shoes
+
+  category_mask: presenza di tops, bottoms e shoes
+```
+
+Il collegamento è dato dalla posizione: `example.negatives[i]` contiene le
+alternative per `example.items[i]`. Le alternative condividono la
+**categoria generale** del capo; possono avere sottocategorie diverse.
+Una camicia può quindi essere negativa rispetto a una maglietta.
+
+I negativi sono candidati usati nel confronto della retrieval loss. Non fanno
+parte dell'outfit e non hanno un'etichetta 0/1 propria. Un candidato diverso
+dal target potrebbe comunque essere compatibile con l'outfit.
+
+### La maschera delle 11 categorie
+
+La maschera risponde alla domanda: **«Questa categoria compare nell'outfit?»**
+Per l'esempio precedente vale:
+
+```text
+posizione   categoria       presente
+    0       tops            True
+    1       bottoms         True
+    2       all-body        False
+    3       outerwear       False
+    4       shoes           True
+    5       bags            False
+    6       jewelry         False
+    7       accessories     False
+    8       sunglasses      False
+    9       hats            False
+   10       scarves         False
+```
+
+L'ordine è definito una sola volta in `data.OUTFIT_CATEGORIES` ed è condiviso
+con `model.OUTFIT_CATEGORIES`. Il catalogo converte `jewellery`, usato da
+Polyvore, in `jewelry`.
+
+La maschera indica la presenza, senza contare i capi. Se un outfit contiene
+collana e anello, entrambi restano in `items`, mentre la posizione `jewelry`
+vale `True` una sola volta. La maschera considera soltanto i capi dell'outfit.
+
+### Da più esempi a `OutfitBatch`
+
+`collate_outfits` raccoglie gli esempi letti dal DataLoader e raggruppa i loro
+campi. Indicando con `B` il numero di esempi, i dati del singolo esempio `b`
+si leggono così:
+
+| Accesso nel batch | Che cosa contiene per l'esempio `b` |
+|---|---|
+| `batch.outfit_ids[b]` | Il suo identificatore. |
+| `batch.outfits[b]` | La sua tupla di `FashionItem`. |
+| `batch.labels[b]` | La sua etichetta; tutte le etichette formano un `Tensor float32 [B]`. |
+| `batch.negatives[b]` | I suoi gruppi di negativi, uno per capo. |
+| `batch.category_mask[b]` | La sua maschera; tutte le maschere formano un `Tensor bool [B, 11]`. |
+
+I tre indici dei negativi si leggono dall'esterno verso l'interno:
+
+```python
+batch.outfits[b][i]         # capo i dell'outfit b: FashionItem
+batch.negatives[b][i]       # alternative per quel capo: tuple[FashionItem, ...]
+batch.negatives[b][i][j]    # alternativa j per quel capo: FashionItem
+```
+
+Ogni outfit può avere un numero diverso di capi: per questo `outfits` e
+`negatives` restano tuple annidate. Etichette e maschere hanno invece una forma
+fissa e vengono raccolte in tensori.
+
+### Esempio d'uso
+
+```python
+from pathlib import Path
+
+from data import (
+    DataSplit, DatasetRequest, FashionItem, LoaderConfig, OutfitBatch, OutfitExample,
+    build_fashion_clip_transform, create_outfit_loader, get_dataset_source,
+)
+
+source = get_dataset_source("polyvore")
+dataset = source.outfit_dataset(
+    DatasetRequest(
+        subset="nondisjoint",
+        split=DataSplit.TRAIN,
+        root=Path("datasets/polyvore-outfits"),
+    ),
+    build_fashion_clip_transform(),
+    negatives_per_item=2,
+)
+
+example: OutfitExample = dataset[0]
+
+loader = create_outfit_loader(
+    dataset, config=LoaderConfig(batch_size=8), shuffle=True,
+)
+batch: OutfitBatch = next(iter(loader))
+
+outfit: tuple[FashionItem, ...] = batch.outfits[0]
+capo: FashionItem = outfit[0]
+alternative: tuple[FashionItem, ...] = batch.negatives[0][0]
+
+print(capo.category, capo.subcategory)
+print(batch.labels[0])          # etichetta del primo outfit
+print(batch.category_mask[0])   # maschera del primo outfit, bool [11]
+```
+
+### Regole da tenere presenti
+
+- L'etichetta ufficiale descrive la compatibilità dell'outfit, non un voto
+  estetico. Per supervisionare il retrieval di outfit corretti si usano gli
+  esempi con `label == 1`; quelli con `label == 0` servono alla classificazione
+  di compatibilità.
+- `negatives_per_item` sceglie quante alternative campionare per capo; il
+  valore predefinito è 4. Vengono ricampionate a ogni accesso, usando soltanto
+  il catalogo dello split richiesto. Ogni gruppo contiene ID distinti ed
+  esclude tutti i capi dell'outfit. Se le alternative non bastano, il dataset
+  solleva `ValueError`.
+- Più capi della stessa categoria restano tutti disponibili. Il chiamante
+  deve decidere come usarli nelle loss che prevedono un solo positivo per
+  categoria, con forma `[B, K, D]`.
+- Per ripetere il sampling con `num_workers=0`, impostare `random.seed(...)`.
+  Nei worker PyTorch inizializza `random`; `LoaderConfig.seed` controlla il
+  generatore del DataLoader. I batch supportano anche `pin_memory`.
 
 ## Dataset disponibili
 

@@ -11,12 +11,14 @@ from .download import (
     download_polyvore_resources,
 )
 from .item_dataset import PolyvoreItemDataset
+from .outfit_dataset import PolyvoreOutfitDataset
 
 __all__ = [
     "DEFAULT_DATASET_ROOT",
     "POLYVORE_DATASET_ID",
     "PolyvoreCatalog",
     "PolyvoreItemDataset",
+    "PolyvoreOutfitDataset",
     "PolyvoreResources",
     "PolyvoreSplit",
     "PolyvoreTask",

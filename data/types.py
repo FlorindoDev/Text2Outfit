@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import torch
 from pydantic import BaseModel, ConfigDict, model_validator
 from torch import Tensor
+
+from .categories import OUTFIT_CATEGORIES
 
 
 class OutfitItem(BaseModel):
@@ -47,6 +49,7 @@ class FashionItem:
     image: Tensor
     description: str
     category: str
+    subcategory: str | None = None
 
     def __post_init__(self) -> None:
         if not self.item_id.strip():
@@ -61,6 +64,81 @@ class FashionItem:
             raise ValueError("description cannot be empty")
         if not self.category.strip():
             raise ValueError("category cannot be empty")
+        if self.subcategory is not None and not self.subcategory.strip():
+            raise ValueError("subcategory cannot be empty")
+
+
+@dataclass(frozen=True)
+class OutfitExample:
+    """One labelled outfit, with retrieval alternatives aligned to its items."""
+
+    outfit_id: str
+    items: tuple[FashionItem, ...]
+    label: int
+    negatives: tuple[tuple[FashionItem, ...], ...]
+
+    def __post_init__(self) -> None:
+        if not self.outfit_id.strip():
+            raise ValueError("outfit_id cannot be empty")
+        if type(self.label) is not int or self.label not in (0, 1):
+            raise ValueError("label must be the integer 0 or 1")
+        if not self.items:
+            raise ValueError("outfit items cannot be empty")
+        if len(self.negatives) != len(self.items):
+            raise ValueError("provide one negative group per outfit item")
+        outfit_ids = {item.item_id for item in self.items}
+        for item, negatives in zip(self.items, self.negatives):
+            if item.category not in OUTFIT_CATEGORIES:
+                raise ValueError(f"unknown outfit category: {item.category}")
+            if item.subcategory is None:
+                raise ValueError(f"item {item.item_id} requires a subcategory")
+            if not negatives:
+                raise ValueError("each outfit item requires at least one negative")
+            negative_ids = [negative.item_id for negative in negatives]
+            if len(set(negative_ids)) != len(negative_ids):
+                raise ValueError("negative items must be distinct within each group")
+            for negative in negatives:
+                if negative.category != item.category:
+                    raise ValueError("negatives must share their target item's category")
+                if negative.item_id in outfit_ids:
+                    raise ValueError("negative items cannot belong to the outfit")
+                if negative.subcategory is None:
+                    raise ValueError(f"negative {negative.item_id} requires a subcategory")
+
+    @property
+    def category_mask(self) -> Tensor:
+        """Boolean presence vector in the shared 11-category order."""
+        present = {item.category for item in self.items}
+        return torch.tensor([category in present for category in OUTFIT_CATEGORIES])
+
+
+@dataclass(frozen=True)
+class OutfitBatch:
+    """Ragged outfits and negatives, with labels [B] and presence masks [B, 11]."""
+
+    outfit_ids: tuple[str, ...]
+    outfits: tuple[tuple[FashionItem, ...], ...]
+    labels: Tensor
+    negatives: tuple[tuple[tuple[FashionItem, ...], ...], ...]
+    category_mask: Tensor
+
+    def pin_memory(self) -> OutfitBatch:
+        return OutfitBatch(
+            outfit_ids=self.outfit_ids,
+            outfits=tuple(
+                tuple(replace(item, image=item.image.pin_memory()) for item in outfit)
+                for outfit in self.outfits
+            ),
+            labels=self.labels.pin_memory(),
+            negatives=tuple(
+                tuple(
+                    tuple(replace(item, image=item.image.pin_memory()) for item in group)
+                    for group in outfit_negatives
+                )
+                for outfit_negatives in self.negatives
+            ),
+            category_mask=self.category_mask.pin_memory(),
+        )
 
 
 @dataclass(frozen=True)

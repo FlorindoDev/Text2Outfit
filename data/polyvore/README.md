@@ -23,6 +23,7 @@
 | `rows.py` | Definisce il contratto strutturale minimo delle righe item. |
 | `catalog.py` | Collega ogni `item_id` a immagine, descrizione e categoria. |
 | `item_dataset.py` | Restituisce singoli articoli. |
+| `outfit_dataset.py` | Legge outfit etichettati e campiona negativi per ciascun capo. |
 
 ## Dettaglio dei file: responsabilità, input e output
 
@@ -184,6 +185,7 @@ checkpoint, test per la valutazione finale.
 | Parquet esposti come righe Hugging Face | Una coppia `item_id` e immagine per articolo. | `item_id` |
 | `<variant>/<split>.json` | Outfit con `set_id`, posizione e `item_id` degli articoli. | `set_id` + `index` |
 | `polyvore_item_metadata.json` | Titolo, descrizione, nome URL e categoria degli articoli. | `item_id` |
+| `<variant>/compatibility_<split>.txt` | Etichetta 0/1 e token dei capi per ciascun outfit. | `set_id` + `index` |
 
 Le immagini non si trovano nel file dei metadata. Allo stesso modo, i token
 degli outfit non contengono né pixel né testo: sono riferimenti da
@@ -232,11 +234,16 @@ Il catalogo costruisce ogni articolo combinando tre sorgenti:
 | Immagine | Campo `image` della riga Hugging Face, poi conversione RGB e transform. |
 | Descrizione | `title` o `url_name`, eventualmente uniti a `description`. |
 | Categoria | `semantic_category`; in assenza, `category_id`. |
+| Sottocategoria | `category_id`, conservato come stringa in `FashionItem.subcategory`. |
 
 Se il testo manca completamente viene usata la descrizione `fashion item`; se
 manca la categoria viene usato `unknown`. Del metadata globale vengono
-conservati soltanto descrizione e categoria degli item presenti nello split,
+conservati soltanto descrizione, categoria e sottocategoria degli item presenti nello split,
 riducendo l’uso di memoria.
+
+Il nome `jewellery` viene normalizzato in `jewelry` per allinearlo alle query
+del modello. Il dataset di outfit richiede categorie note e sottocategorie
+presenti; per il solo catalogo una sottocategoria mancante resta `None`.
 
 Le immagini possono essere già decodificate, rappresentate come byte o riferite
 da un percorso locale fornito da Hugging Face. Non vengono scaricate da URL
@@ -247,12 +254,14 @@ esterni durante l’iterazione del dataset.
 | Richiesta | Risorse richieste |
 |---|---|
 | Articoli | Righe immagine dello split e metadata globali. |
+| Outfit | Risorse degli articoli, `<variant>/<split>.json` e `<variant>/compatibility_<split>.txt`. |
 | Solo metadata | `polyvore_item_metadata.json`, con `include_items=False` e `include_metadata=True`. |
 
 `download_polyvore_resources` mantiene i parametri `task="items"`, `variant`,
 `split`, `token`, `cache_dir`, `dataset_root`, `include_items` e
-`include_metadata`. `PolyvoreTask` espone `ITEMS`; `PolyvoreResources` contiene
-`item_rows` e `metadata_path`.
+`include_metadata`. `PolyvoreTask` espone `ITEMS` e `OUTFITS`; per gli outfit
+`PolyvoreResources` aggiunge `outfits_path` e `compatibility_path` a
+`item_rows` e `metadata_path`. Per validation, i file usano `valid`.
 
 La risoluzione mantiene l’ordine file locali, cache Hugging Face, download dei
 soli file mancanti. Risoluzione e verifica avvengono prima della creazione del
@@ -275,3 +284,14 @@ diversi.
 Il catalogo descrive i dati grezzi e trasformati, ma non salva embedding. Le
 feature sono prodotte dagli encoder di `model.multimodal_representation` e
 rimangono a disposizione del chiamante.
+
+`PolyvoreOutfitDataset` legge le etichette originali da
+`compatibility_<split>.txt`, risolve i token attraverso `<split>.json` e
+mantiene tutti i capi, anche se una categoria compare più volte. Righe con
+etichette diverse da 0/1, token sconosciuti o item esterni allo split vengono
+rifiutate. I negativi sono articoli della stessa categoria, distinti e assenti
+dall'outfit corrente; vengono campionati senza caricare immagini durante
+l'inizializzazione del dataset. Non sono nuovi outfit con etichetta 0.
+
+Per il formato del batch e un esempio completo, vedere
+[Outfit etichettati e negativi per retrieval](../README.md#outfit-etichettati-e-negativi-per-retrieval).

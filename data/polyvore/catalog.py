@@ -21,6 +21,7 @@ from .rows import ItemRows
 class _ItemMetadata:
     description: str
     category: str
+    subcategory: str | None = None
 
 
 _DEFAULT_METADATA = _ItemMetadata(description="fashion item", category="unknown")
@@ -91,10 +92,17 @@ class PolyvoreCatalog:
             image=image_tensor,
             description=metadata.description,
             category=metadata.category,
+            subcategory=metadata.subcategory,
         )
 
     def get_many(self, item_ids: Sequence[str]) -> tuple[FashionItem, ...]:
         return tuple(self.get(item_id) for item_id in item_ids)
+
+    def category_for(self, item_id: str) -> str:
+        """Read an item's category without decoding its image."""
+        if item_id not in self:
+            raise KeyError(f"unknown Polyvore item_id: {item_id}")
+        return self._metadata.get(str(item_id), _DEFAULT_METADATA).category
 
 
 def load_outfit_token_index(path: str | Path) -> dict[str, str]:
@@ -182,6 +190,7 @@ def _load_metadata(
             metadata[item_id] = _ItemMetadata(
                 description=_build_description(value),
                 category=_extract_category(value),
+                subcategory=_extract_subcategory(value),
             )
     return metadata
 
@@ -227,7 +236,15 @@ def _build_description(metadata: Mapping[str, Any]) -> str:
 
 
 def _extract_category(metadata: Mapping[str, Any]) -> str:
-    return _first_text(metadata, "semantic_category", "category_id") or "unknown"
+    category = _first_text(metadata, "semantic_category", "category_id") or "unknown"
+    return "jewelry" if category == "jewellery" else category
+
+
+def _extract_subcategory(metadata: Mapping[str, Any]) -> str | None:
+    value = metadata.get("category_id")
+    if isinstance(value, (str, int)) and not isinstance(value, bool):
+        return str(value).strip() or None
+    return None
 
 
 def _first_text(metadata: Mapping[str, Any], *keys: str) -> str:

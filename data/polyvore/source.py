@@ -12,7 +12,7 @@ from ..source import (
     DatasetRequest,
 )
 from ..transforms import ImageTransform
-from ..types import FashionItem
+from ..types import FashionItem, OutfitExample
 
 from .catalog import PolyvoreCatalog
 from .download import (
@@ -25,6 +25,7 @@ from .download import (
     download_polyvore_resources,
 )
 from .item_dataset import PolyvoreItemDataset
+from .outfit_dataset import PolyvoreOutfitDataset
 
 
 class PolyvoreSource:
@@ -45,6 +46,23 @@ class PolyvoreSource:
     ) -> Dataset[FashionItem]:
         resources = self._resources(request, PolyvoreTask.ITEMS)
         return PolyvoreItemDataset(_build_catalog(resources, image_transform))
+
+    def outfit_dataset(
+        self,
+        request: DatasetRequest,
+        image_transform: ImageTransform,
+        *,
+        negatives_per_item: int = 4,
+    ) -> Dataset[OutfitExample]:
+        resources = self._resources(request, PolyvoreTask.OUTFITS)
+        if resources.outfits_path is None or resources.compatibility_path is None:
+            raise RuntimeError("Polyvore outfit resources are incomplete")
+        return PolyvoreOutfitDataset(
+            _build_catalog(resources, image_transform),
+            resources.outfits_path,
+            resources.compatibility_path,
+            negatives_per_item=negatives_per_item,
+        )
 
     def download(self, request: DatasetDownloadRequest) -> Path:
         """Download complete Hugging Face repository to requested directory."""

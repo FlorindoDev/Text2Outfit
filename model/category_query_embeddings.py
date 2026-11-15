@@ -2,20 +2,7 @@
 
 from torch import Tensor, nn
 
-
-OUTFIT_CATEGORIES = (
-    "tops",
-    "bottoms",
-    "all-body",
-    "outerwear",
-    "shoes",
-    "bags",
-    "jewelry",
-    "accessories",
-    "sunglasses",
-    "hats",
-    "scarves",
-)
+from data.categories import OUTFIT_CATEGORIES
 
 
 class CategoryQueryEmbeddings(nn.Module):

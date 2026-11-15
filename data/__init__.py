@@ -1,9 +1,11 @@
-"""Data ingestion, preprocessing and batching for fashion items."""
+"""Data ingestion, preprocessing and batching for fashion items and outfits."""
 
-from .collate import collate_items
+from .categories import OUTFIT_CATEGORIES
+from .collate import collate_items, collate_outfits
 from .loaders import (
     LoaderConfig,
     create_item_loader,
+    create_outfit_loader,
 )
 from .source import (
     DEFAULT_DATASET_NAME,
@@ -24,6 +26,8 @@ from .transforms import (
 from .types import (
     FashionItem,
     ItemBatch,
+    OutfitBatch,
+    OutfitExample,
     OutfitItem,
 )
 
@@ -39,11 +43,16 @@ __all__ = [
     "IndexedDataset",
     "ItemBatch",
     "LoaderConfig",
+    "OUTFIT_CATEGORIES",
+    "OutfitBatch",
+    "OutfitExample",
     "OutfitItem",
     "build_fashion_clip_transform",
     "build_marqo_fashion_siglip_transform",
     "collate_items",
+    "collate_outfits",
     "create_item_loader",
+    "create_outfit_loader",
     "available_dataset_names",
     "get_dataset_source",
 ]

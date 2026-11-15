@@ -7,6 +7,8 @@
 | `multimodal_representation` | Crea embedding FashionCLIP o Marqo FashionSigLIP, li normalizza L2, concatena visivo e testo e applica la testa MLP. | [README](multimodal_representation/README.md) |
 | `mlp` | Crea MLP indipendenti con input, output e dimensioni dei layer nascosti configurabili. | [README](mlp/README.md) |
 | `outfit_seed_encoder.py` | Codifica l'immagine seed con l'encoder visuale esistente e passa l'embedding a un MLP. | [Utilizzo](#encoding-del-seed-delloutfit) |
+| `category_query_embeddings.py` | Crea le 11 query IMG_cat apprendibili esterne al tokenizer. | [Utilizzo](#query-apprendibili-di-categoria) |
+| `losses` | Calcola retrieval, CP, presenza, sottocategoria e Composition Loss. | [README](losses/README.md) |
 
 ## Architettura
 
@@ -45,6 +47,7 @@ espone la dimensione effettiva tramite `output_dim`.
 | `MultimodalEncoder` | Immagini e descrizioni dello stesso batch; testa `MLP` passata al costruttore. | Proiezione delle feature concatenate `[N, mlp.output_dim]`. |
 | `MLP` | Tensore `[..., input_dim]`; `hidden_dims` imposta larghezza e profondita. | Tensore `[..., output_dim]`, senza normalizzazione. |
 | `OutfitSeedEncoder` | Immagine preprocessata `[3, H, W]` o batch `[N, 3, H, W]`. | Embedding del seed `[N, mlp.output_dim]`. |
+| `CategoryQueryEmbeddings` | `embedding_dim` al costruttore; `batch_size` nel forward, default `1`. | Query apprendibili `[batch_size, 11, embedding_dim]`. |
 
 Le stesse classi si importano da `model` e da
 `model.multimodal_representation`:
@@ -57,6 +60,10 @@ from model import FashionCLIPTextEncoder, FashionCLIPVisualEncoder, MultimodalEn
 mostra come creare quattro reti con architetture diverse. Lo script
 [`precompute_embeddings`](../scripts/README.md#precomputare-gli-embedding)
 salva su disco gli input riutilizzabili durante l'addestramento.
+
+Le loss si importano da `model.losses` o direttamente da `model`.
+La [guida delle loss](losses/README.md) descrive formule, negativi, maschere,
+formati dei target, gradienti e scelte rispetto al paper.
 
 ## Encoding del seed dell'outfit
 
@@ -98,6 +105,39 @@ L'output dell'MLP resta lineare e non viene normalizzato ulteriormente.
 L'MLP parte con pesi casuali e va addestrato. Il modulo conserva i gradienti
 durante il training; con encoder congelato si addestra soltanto l'MLP.
 `torch.inference_mode()` nell'esempio serve alla sola inferenza.
+
+## Query apprendibili di categoria
+
+`CategoryQueryEmbeddings`, in `model/category_query_embeddings.py`, crea una
+tabella `nn.Embedding` con una query per ciascuna delle 11 categorie di
+Text2Outfit. La dimensione e obbligatoria e deve corrispondere a quella degli
+embedding d'ingresso dell'LLM che userai.
+
+```python
+from model import CategoryQueryEmbeddings
+
+queries = CategoryQueryEmbeddings(embedding_dim=4096)  # Esempio di dimensione.
+embeddings = queries(batch_size=8)  # [8, 11, 4096]
+categories = queries.categories
+shoes = embeddings[:, categories.index("shoes"), :]
+```
+
+L'ordine, disponibile anche come costante `model.OUTFIT_CATEGORIES`, e:
+`tops`, `bottoms`, `all-body`, `outerwear`, `shoes`, `bags`, `jewelry`,
+`accessories`, `sunglasses`, `hats`, `scarves`.
+
+Ogni categoria ha parametri propri, condivisi fra gli esempi del batch.
+Il modulo usa l'inizializzazione casuale standard di `nn.Embedding`, senza
+normalizzazione. I vettori vanno addestrati: acquistano significato tramite
+le loss del modello in cui verranno inseriti. Il forward conserva i gradienti.
+Si possono passare `queries.parameters()` a un optimizer e salvare/ripristinare
+le query con `state_dict()`. `.to(device=..., dtype=...)` sposta il modulo;
+l'output segue dispositivo e precisione dei pesi.
+
+Il modulo produce soltanto le query iniziali. L'inserimento nella sequenza,
+le maschere d'attenzione e gli hidden state contestualizzati `h_cat` sono
+responsabilita dell'integrazione con l'LLM. Non richiede un tokenizer o un
+checkpoint e non li modifica.
 
 ## Responsabilità e limiti
 

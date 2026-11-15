@@ -1,5 +1,6 @@
 """Image/text representations and trainable embedding networks."""
 
+from .category_query_embeddings import OUTFIT_CATEGORIES, CategoryQueryEmbeddings
 from .mlp import MLP
 
 from .multimodal_representation import (
@@ -14,6 +15,8 @@ from .multimodal_representation import (
 from .outfit_seed_encoder import OutfitSeedEncoder
 
 __all__ = [
+    "OUTFIT_CATEGORIES",
+    "CategoryQueryEmbeddings",
     "FashionCLIPTextEncoder",
     "FashionCLIPVisualEncoder",
     "MarqoFashionSigLIPTextEncoder",

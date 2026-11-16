@@ -12,6 +12,8 @@ from unittest.mock import patch
 import torch
 from torch import nn
 from torch.nn import functional as F
+from torch.optim import AdamW
+from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import DataLoader
 from tokenizers import Tokenizer
 from tokenizers.models import WordLevel
@@ -221,18 +223,37 @@ class TrainingTests(unittest.TestCase):
             cached(torch.zeros(2,3,2,2), ["a", "b"])
 
     def test_checkpoint_resume_and_plots_for_every_epoch(self):
+        from training.plots import save_loss_plots
+
+        def interrupt_after_checkpoint(history, directory, epoch):
+            save_loss_plots(history, directory, epoch)
+            raise RuntimeError("simulated interruption")
+
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             loader = DataLoader([self.example], batch_size=1, collate_fn=collate_seed_outfits,
                                 generator=torch.Generator().manual_seed(42))
-            history = train(self.model, loader, loader, TrainingConfig(output_dir=root, epochs=1))
+            with self.assertRaisesRegex(RuntimeError, "simulated interruption"), patch(
+                "training.plots.save_loss_plots", side_effect=interrupt_after_checkpoint,
+            ):
+                train(self.model, loader, loader, TrainingConfig(output_dir=root, epochs=2))
             first = root / "epochs/seed_to_outfit_epoch_001.pt"
             checkpoint = torch.load(first, weights_only=True)
             self.assertEqual(checkpoint["epoch"], 1)
             self.assertTrue(checkpoint["optimizer_state_dict"]["state"])
+            self.assertEqual(checkpoint["scheduler_state_dict"]["last_epoch"], 1)
+            self.assertEqual(checkpoint["scheduler_state_dict"]["total_steps"], 2)
             self.assertTrue(any("lora_A" in key for key in checkpoint["model_state_dict"]))
             self.assertFalse(any("embed_tokens" in key or "compatibility.cp" in key for key in checkpoint["model_state_dict"]))
             self.assertEqual(len(list((root / "plots").glob("*.png"))), 7)
+            with self.assertRaisesRegex(ValueError, "total steps"):
+                train(make_model(), loader, loader, TrainingConfig(output_dir=root, epochs=3, resume=first))
+            legacy = dict(checkpoint, checkpoint_schema_version=1)
+            legacy.pop("scheduler_state_dict")
+            torch.save(legacy, root / "legacy.pt")
+            with self.assertRaisesRegex(ValueError, "OneCycleLR.*scheduler state"):
+                train(make_model(), loader, loader,
+                      TrainingConfig(output_dir=root, epochs=2, resume=root / "legacy.pt"))
             restored = make_model()
             history = train(restored, loader, loader, TrainingConfig(output_dir=root, epochs=2, resume=first))
             self.assertEqual(history["epochs"], [1, 2])
@@ -240,7 +261,18 @@ class TrainingTests(unittest.TestCase):
             self.assertEqual(len(list((root / "plots").glob("*.png"))), 14)
             self.assertTrue((root / "best.pt").is_file())
             self.assertEqual(json.loads((root / "history.json").read_text())["epochs"], [1,2])
-            self.assertEqual(torch.load(root / "epochs/seed_to_outfit_epoch_002.pt", weights_only=True)["global_step"], 2)
+            resumed = torch.load(root / "epochs/seed_to_outfit_epoch_002.pt", weights_only=True)
+            self.assertEqual(resumed["global_step"], 2)
+            self.assertEqual(resumed["scheduler_state_dict"]["last_epoch"], 2)
+            uninterrupted = make_model()
+            with patch("training.plots.save_loss_plots"):
+                train(uninterrupted, loader, loader,
+                      TrainingConfig(output_dir=root / "uninterrupted", epochs=2))
+            for actual, expected in zip(restored.parameters(), uninterrupted.parameters()):
+                torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+            reference = torch.load(root / "uninterrupted/epochs/seed_to_outfit_epoch_002.pt", weights_only=True)
+            self.assertEqual(resumed["scheduler_state_dict"], reference["scheduler_state_dict"])
+            self.assertEqual(resumed["optimizer_state_dict"]["param_groups"], reference["optimizer_state_dict"]["param_groups"])
             with self.assertRaises(FileExistsError):
                 train(restored, loader, loader, TrainingConfig(output_dir=root))
 
@@ -254,6 +286,40 @@ class TrainingTests(unittest.TestCase):
             train(other, large, large, TrainingConfig(output_dir=Path(directory)/"large", epochs=1, gradient_accumulation_steps=1))
         for actual, expected in zip(self.model.parameters(), other.parameters()):
             torch.testing.assert_close(actual, expected, atol=2e-6, rtol=2e-5)
+
+    def test_one_cycle_follows_optimizer_updates_including_partial_groups(self):
+        rates = []
+
+        class RecordingAdamW(AdamW):
+            def step(self, closure=None):
+                rates.append((self.param_groups[0]["lr"], self.param_groups[0]["betas"][0]))
+                return super().step(closure)
+
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch("training.trainer.AdamW", RecordingAdamW),
+            patch("training.plots.save_loss_plots"),
+        ):
+            root = Path(directory)
+            loader = DataLoader([self.example] * 5, batch_size=2, collate_fn=collate_seed_outfits)
+            config = TrainingConfig(output_dir=root, epochs=3, gradient_accumulation_steps=2)
+            train(self.model, loader, loader, config)
+            checkpoint = torch.load(root / "epochs/seed_to_outfit_epoch_003.pt", weights_only=True)
+            settings = json.loads((root / "config.json").read_text())["scheduler"]
+        self.assertEqual(settings["name"], "OneCycleLR")
+        self.assertEqual(settings["total_steps"], 6)
+        self.assertEqual(checkpoint["global_step"], 6)
+        self.assertEqual(checkpoint["scheduler_state_dict"]["last_epoch"], 6)
+        optimizer = AdamW([nn.Parameter(torch.zeros(()))], lr=config.learning_rate)
+        scheduler = OneCycleLR(optimizer, max_lr=config.learning_rate, total_steps=6,
+                               pct_start=0.3, anneal_strategy="cos", div_factor=25.0,
+                               final_div_factor=10_000.0)
+        expected = []
+        for _ in range(6):
+            expected.append((optimizer.param_groups[0]["lr"], optimizer.param_groups[0]["betas"][0]))
+            optimizer.step()
+            scheduler.step()
+        self.assertEqual(rates, expected)
 
     def test_training_and_validation_log_every_50_batches_and_the_last_batch(self):
         parameter = next(p for p in self.model.parameters() if p.requires_grad)
@@ -276,11 +342,20 @@ class TrainingTests(unittest.TestCase):
             messages = [record.getMessage() for record in captured.records]
             batches = sorted(set(range(50, batch_count + 1, 50)) | {batch_count})
             expected = [
-                f"epoch=1 microbatch={batch}/{batch_count} loss={loss:.6f} lr=0.0001 phase={phase}"
+                (phase, f"{batch}/{batch_count}", f"{loss:.6f}")
                 for phase, loss in (("train", 2.0), ("validation", 3.0))
                 for batch in batches
             ]
-            self.assertEqual([message for message in messages if "microbatch=" in message], expected)
+            progress = [dict(field.split("=", 1) for field in message.split())
+                        for message in messages if "microbatch=" in message]
+            self.assertEqual([(entry["phase"], entry["microbatch"], entry["loss"]) for entry in progress], expected)
+            for entry in progress:
+                self.assertEqual(set(entry), {"epoch", "microbatch", "loss", "lr", "phase"})
+                self.assertEqual(entry["epoch"], "1")
+                self.assertGreater(float(entry["lr"]), 0)
+                self.assertLessEqual(float(entry["lr"]), 1e-4)
+            self.assertTrue(all(entry["lr"] == progress[len(batches) - 1]["lr"]
+                                for entry in progress if entry["phase"] == "validation"))
             self.assertEqual(messages[0], f"epoch=1/1 phase=train batches={batch_count}")
             self.assertEqual(messages[1 + len(batches)], f"epoch=1/1 phase=validation batches={batch_count}")
             self.assertEqual(messages[-1], "epoch=1/1 train_loss=2.000000 val_loss=3.000000 best_val_loss=3.000000")

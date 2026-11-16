@@ -5,6 +5,31 @@
 elementi determina la profondita. Ogni layer nascosto usa ReLU; l'ultimo
 layer e lineare, senza attivazione o normalizzazione.
 
+## Funzione di attivazione
+
+L'attivazione usata è **ReLU**, implementata con `torch.nn.ReLU()` in
+[`mlp.py`](mlp.py): `ReLU(x) = max(0, x)`. Viene applicata dopo ogni layer
+lineare nascosto. Il layer di uscita è **lineare, senza attivazione**.
+
+| Parte della MLP | Operazione |
+|---|---|
+| Ogni layer nascosto | `Linear(in, out) → ReLU` |
+| Layer finale | `Linear(in, out)` |
+| Caso `hidden_dims=()` | Un solo layer `Linear`, senza ReLU. |
+
+Per esempio, con `hidden_dims=(512,)` il percorso è
+`Linear(input_dim, 512) → ReLU → Linear(512, output_dim)`.
+Tutti i layer lineari hanno bias abilitato. La MLP non contiene dropout,
+BatchNorm, LayerNorm o normalizzazione L2.
+
+Questa scelta vale per tutte le MLP del modello: seed, item, retrieval,
+presenza e sottocategoria. Le teste di classificazione restituiscono logits
+grezzi: le trasformazioni richieste per BCE e cross-entropy sono gestite
+dalle funzioni di loss. Gli embedding retrieval e item vengono normalizzati
+nel calcolo della loss retrieval, senza modificare l'uscita della MLP.
+
+## Configurazione e utilizzo
+
 ```python
 import torch
 from torch import nn

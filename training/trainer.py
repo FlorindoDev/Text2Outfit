@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import random
 import shutil
 from dataclasses import asdict
@@ -13,10 +14,14 @@ from typing import Any
 import torch
 from torch import nn
 from torch.optim import AdamW
+from torch.optim.lr_scheduler import OneCycleLR
 from torch.utils.data import DataLoader
 
 from model.outfit.text2outfit import LOSS_NAMES, Text2OutfitModel
-from .config import TrainingConfig
+from .config import (
+    ONE_CYCLE_DIV_FACTOR, ONE_CYCLE_FINAL_DIV_FACTOR, ONE_CYCLE_PCT_START,
+    TrainingConfig,
+)
 
 LOGGER = logging.getLogger("training.seed_to_outfit")
 LOG_EVERY = 50
@@ -50,11 +55,17 @@ def training_contract(model: Text2OutfitModel) -> dict[str, Any]:
 
 def restore_checkpoint(
     path: str | Path, model: Text2OutfitModel, optimizer: AdamW,
-    train_loader: DataLoader, *, expected_run_config: dict[str, Any] | None = None,
+    train_loader: DataLoader, *, scheduler: OneCycleLR,
+    expected_run_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     checkpoint = torch.load(path, map_location="cpu", weights_only=True)
-    if checkpoint.get("checkpoint_schema_version") != 1:
-        raise ValueError("unsupported seed-to-outfit checkpoint schema")
+    if checkpoint.get("checkpoint_schema_version") != 2 or "scheduler_state_dict" not in checkpoint:
+        raise ValueError("OneCycleLR resume requires a checkpoint with scheduler state (schema 2); start a new run")
+    scheduler_state = checkpoint["scheduler_state_dict"]
+    if scheduler_state["total_steps"] != scheduler.total_steps:
+        raise ValueError("resume cannot change OneCycleLR total steps; keep the planned epochs and training loader")
+    if scheduler_state["last_epoch"] != checkpoint["global_step"]:
+        raise ValueError("checkpoint scheduler step does not match global_step")
     if checkpoint["model_config"] != training_contract(model):
         raise ValueError("checkpoint backbone, CP model, taxonomy or training objective does not match")
     if expected_run_config is not None and checkpoint["run_config"] != expected_run_config:
@@ -67,6 +78,7 @@ def restore_checkpoint(
     if incompatible.unexpected_keys or expected.intersection(incompatible.missing_keys):
         raise ValueError("invalid training state dictionary")
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    scheduler.load_state_dict(scheduler_state)
     random.setstate(checkpoint["rng_state"]["python"])
     torch.set_rng_state(checkpoint["rng_state"]["torch"])
     if torch.cuda.is_available() and checkpoint["rng_state"]["cuda"]:
@@ -93,23 +105,38 @@ def train(
     if not parameters:
         raise ValueError("model has no trainable parameters")
     optimizer = AdamW(parameters, lr=config.learning_rate, weight_decay=config.weight_decay)
+    total_optimizer_steps = math.ceil(len(train_loader) / config.gradient_accumulation_steps) * config.epochs
+    scheduler = OneCycleLR(
+        optimizer, max_lr=config.learning_rate, total_steps=total_optimizer_steps,
+        pct_start=ONE_CYCLE_PCT_START, anneal_strategy="cos",
+        div_factor=ONE_CYCLE_DIV_FACTOR, final_div_factor=ONE_CYCLE_FINAL_DIV_FACTOR,
+    )
+    scheduler_config = dict(
+        name="OneCycleLR", max_lr=config.learning_rate, total_steps=total_optimizer_steps,
+        pct_start=ONE_CYCLE_PCT_START, anneal_strategy="cos",
+        div_factor=ONE_CYCLE_DIV_FACTOR, final_div_factor=ONE_CYCLE_FINAL_DIV_FACTOR,
+    )
     metadata = json.loads(json.dumps(run_config or {}, default=str))
     history: dict[str, Any] = dict(epochs=[], train=[], validation=[])
     start_epoch, best_loss, global_step = 1, float("inf"), 0
     if config.resume is not None:
-        checkpoint = restore_checkpoint(config.resume, model, optimizer, train_loader, expected_run_config=metadata)
+        checkpoint = restore_checkpoint(
+            config.resume, model, optimizer, train_loader,
+            scheduler=scheduler, expected_run_config=metadata,
+        )
         history = checkpoint["training_history"]
         start_epoch, best_loss = checkpoint["epoch"] + 1, checkpoint["best_validation_loss"]
         global_step = checkpoint["global_step"]
         previous = checkpoint["training_config"]
-        for name in ("learning_rate", "weight_decay", "gradient_accumulation_steps", "max_grad_norm"):
+        for name in ("epochs", "batch_size", "learning_rate", "weight_decay", "gradient_accumulation_steps", "max_grad_norm"):
             if previous[name] != getattr(config, name):
                 raise ValueError(f"resume cannot change {name}")
         if any(int(path.stem.rsplit("_", 1)[-1]) >= start_epoch for path in (output / "epochs").glob("seed_to_outfit_epoch_*.pt")):
             raise FileExistsError("later epochs already exist; choose a new output directory for this resume")
         if start_epoch > config.epochs:
             raise ValueError("resume epoch already reaches the requested number of epochs")
-    _save(dict(training=asdict(config), model=training_contract(model), run=metadata), output / "config.json", json_file=True)
+    _save(dict(training=asdict(config), model=training_contract(model), scheduler=scheduler_config, run=metadata),
+          output / "config.json", json_file=True)
     (output / "architecture.txt").write_text(model.architecture_summary(), encoding="utf-8")
 
     for epoch in range(start_epoch, config.epochs + 1):
@@ -136,6 +163,7 @@ def train(
                         parameter.grad.div_(group_examples)
                 nn.utils.clip_grad_norm_(parameters, config.max_grad_norm, error_if_nonfinite=True)
                 optimizer.step()
+                scheduler.step()
                 optimizer.zero_grad(set_to_none=True)
                 group_examples = 0
                 global_step += 1
@@ -172,10 +200,11 @@ def train(
         improved = validation_metrics["total"] < best_loss
         best_loss = min(best_loss, validation_metrics["total"])
         payload = dict(
-            checkpoint_schema_version=1, epoch=epoch, global_step=global_step,
+            checkpoint_schema_version=2, epoch=epoch, global_step=global_step,
             state_dict_kind="trainable_parameters",
             model_state_dict={name: parameter.detach().cpu() for name, parameter in model.named_parameters() if parameter.requires_grad},
             optimizer_state_dict=optimizer.state_dict(),
+            scheduler_state_dict=scheduler.state_dict(),
             model_config=training_contract(model),
             training_config=json.loads(json.dumps(asdict(config), default=str)),
             run_config=metadata, training_history=history, best_validation_loss=best_loss,

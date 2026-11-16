@@ -4,6 +4,10 @@ from dataclasses import dataclass
 import math
 from pathlib import Path
 
+ONE_CYCLE_PCT_START = 0.3
+ONE_CYCLE_DIV_FACTOR = 25.0
+ONE_CYCLE_FINAL_DIV_FACTOR = 10_000.0
+
 
 @dataclass(frozen=True)
 class TrainingConfig:
@@ -11,7 +15,7 @@ class TrainingConfig:
 
     output_dir: Path = Path("checkpoints/seed_to_outfit")
     epochs: int = 10
-    learning_rate: float = 1e-4
+    learning_rate: float = 1e-4  # Maximum learning rate for OneCycleLR.
     weight_decay: float = 0.01
     gradient_accumulation_steps: int = 4
     max_grad_norm: float = 1.0

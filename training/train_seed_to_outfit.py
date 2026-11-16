@@ -50,7 +50,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--epochs", type=int, default=DEFAULT_TRAINING_CONFIG.epochs)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_TRAINING_CONFIG.batch_size)
     parser.add_argument("--accumulation-steps", type=int, default=DEFAULT_TRAINING_CONFIG.gradient_accumulation_steps)
-    parser.add_argument("--learning-rate", type=float, default=DEFAULT_TRAINING_CONFIG.learning_rate)
+    parser.add_argument("--learning-rate", type=float, default=DEFAULT_TRAINING_CONFIG.learning_rate,
+                        help="maximum learning rate for OneCycleLR")
     parser.add_argument("--weight-decay", type=float, default=DEFAULT_TRAINING_CONFIG.weight_decay)
     parser.add_argument("--negatives-per-item", type=int, default=DEFAULT_TRAINING_CONFIG.negatives_per_item)
     parser.add_argument("--retrieval-dim", type=int, default=DEFAULT_MODEL_CONFIG.retrieval_dim,

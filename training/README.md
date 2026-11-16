@@ -2,7 +2,8 @@
 
 Il modulo allena insieme LoRA, le 11 query, la MLP del seed, le tre teste
 per categoria e la MLP degli item. Retrieval e item producono embedding da
-1024 componenti, passati direttamente al CP senza adattatore. I backbone Qwen,
+1024 componenti con FashionCLIP e 1536 con FashionSigLIP, passati direttamente
+al CP corrispondente senza adattatore. I backbone Qwen,
 FashionCLIP/FashionSigLIP e il modello CP restano congelati; su Qwen si
 aggiornano soltanto gli adattatori LoRA nelle proiezioni Q/K/V.
 
@@ -33,12 +34,9 @@ mostra input, layer nascosti, output e conteggio dei parametri.
 (default `4096`). Deve coincidere con `hidden_size` del modello scelto con
 `--llm`; viene verificato prima di costruire LoRA e MLP.
 
-Dalla root del progetto, installare le dipendenze nell'ambiente Python:
-
-```powershell
-python -m pip install -r requirements.txt
-python -m training.train_seed_to_outfit --epochs 10
-```
+I comandi di installazione e training sono raccolti negli
+[esempi in fondo alla pagina](#esempi-di-comando), ciascuno nelle versioni
+Bash e PowerShell. Vanno eseguiti dalla root del progetto, nell'ambiente Python.
 
 Il default usa Qwen3 Embedding 8B, FashionCLIP, seed immagine, batch size 1,
 4 microbatch per aggiornamento e gradient checkpointing. Usa CUDA se
@@ -52,7 +50,11 @@ scaricato da [GitHub](https://github.com/FlorindoDev/OutfitTransformer), i pesi
 da [Hugging Face](https://huggingface.co/FlorindoDev/OutfitTransformer-weights).
 Viene scaricato soltanto `checkpoints/nondisjoint/cp_precomputed-flashionclip/best.pt`;
 i file locali e la cache vengono riutilizzati prima di accedere alla rete.
-Per prepararlo separatamente: `python -m model.compatibility`.
+È possibile preparare il CP separatamente con il relativo
+[esempio di comando](#preparazione-separata-del-cp).
+Questo checkpoint predefinito è per FashionCLIP. Con `--encoder siglip`
+specificare il CP FashionSigLIP da 1536 componenti tramite `--cp-checkpoint`
+oppure `--cp-weights-file`; il codice rifiuta il default FashionCLIP.
 
 Per usare un CP già presente, specificare i due percorsi con questi flag:
 
@@ -61,14 +63,8 @@ Per usare un CP già presente, specificare i due percorsi con questi flag:
 | `--cp-repo` | Cartella del repository OutfitTransformer, contenente il package `model/`. |
 | `--cp-checkpoint` | File `.pt` del modello CP già addestrato, per esempio `best.pt`. |
 
-```powershell
-python -m training.train_seed_to_outfit `
-  --cp-repo "percorso/OutfitTransformer" `
-  --cp-checkpoint "percorso/checkpoint-cp/best.pt" `
-  --epochs 10
-```
-
-Sostituire i percorsi dell'esempio con quelli del proprio ambiente. Possono
+Sostituire i percorsi dell'[esempio con CP locale](#training-con-cp-locale)
+con quelli del proprio ambiente. Possono
 essere assoluti oppure relativi alla cartella da cui si avvia il comando.
 
 I flag `--cp-source-url`, `--cp-weights-repo`, `--cp-weights-file` e `--cp-cache`
@@ -85,12 +81,14 @@ compatibili e vengono rifiutati con un errore esplicito.
 Il CP valuta direttamente gli embedding retrieval predetti, usando la maschera
 di presenza target. I suoi pesi restano in `eval()`, ma i gradienti attraversano
 lo scorer fino al generatore: questo ramo non usa `no_grad()`.
-`--retrieval-dim` deve coincidere con `model_dim` del checkpoint CP; il default
-è `1024`. Un checkpoint con una dimensione diversa viene rifiutato.
+`--retrieval-dim` deve coincidere con `model_dim` del checkpoint CP. Se omesso,
+il default è `1024` con FashionCLIP e `1536` con FashionSigLIP, sia per la MLP
+item sia per tutte le teste retrieval. Un checkpoint con una dimensione diversa
+viene rifiutato.
 
 ## Flag della CLI
 
-Tutti i flag di `python -m training.train_seed_to_outfit` sono riportati qui
+Tutti i flag della CLI di training sono riportati qui
 sotto, inclusi help e disattivazione del gradient checkpointing. I default
 provengono da [`TrainingConfig`](config.py), [`ModelConfig`](../model/config.py)
 e dal [parser della CLI](train_seed_to_outfit.py). I percorsi relativi partono
@@ -123,7 +121,7 @@ specificato un valore, con il comportamento descritto nella tabella.
 | `--learning-rate` | Learning rate di AdamW per i parametri allenabili. | `0.0001` |
 | `--weight-decay` | Weight decay di AdamW. | `0.01` |
 | `--negatives-per-item` | Numero di articoli negativi distinti per item, della stessa categoria e dello stesso split, esterni all'outfit positivo. | `4` |
-| `--retrieval-dim` | Dimensione comune degli embedding retrieval e item; deve coincidere con `model_dim` del CP. | `1024` |
+| `--retrieval-dim` | Dimensione comune degli embedding retrieval e item; deve coincidere con `model_dim` del CP. | `None` — automatico: `1024` FashionCLIP / `1536` FashionSigLIP. |
 | `--hidden-dim` | Sostituisce gli strati nascosti di tutte le famiglie MLP con un solo layer della larghezza indicata. | `None` — conserva le dimensioni di `ModelConfig`, inizialmente un layer nascosto da `512` per ogni famiglia. |
 | `--seed-mode` | Modalità del seed: `image` usa l'immagine o le feature visuali cached; `text` aggiunge la descrizione al prompt. | `image` |
 | `--prompt` | Prompt comune a tutti gli outfit quando non si specifica `--prompts`. | `Complete a compatible outfit using this seed item.` |
@@ -138,11 +136,8 @@ specificato un valore, con il comportamento descritto nella tabella.
 | `--num-workers` | Numero di processi worker dei DataLoader; `0` carica i dati nel processo principale. | `0` |
 | `--device` | Dispositivo PyTorch, per esempio `cpu`, `cuda` o `cuda:0`; `auto` sceglie CUDA se disponibile, altrimenti CPU. | `auto` |
 
-Per consultare l'help della versione corrente:
-
-```powershell
-python -m training.train_seed_to_outfit --help
-```
+Per consultare l'help della versione corrente, usare il relativo
+[esempio di comando](#help-della-cli).
 
 ## Item già precomputati
 
@@ -162,20 +157,20 @@ precomputed_embeddings/patrickjohncyh-fashion-clip/
     └── validation/manifest.json
 ```
 
-```powershell
-python -m training.train_seed_to_outfit `
-  --embedding-root precomputed_embeddings/patrickjohncyh-fashion-clip `
-  --output-dir checkpoints/seed_cached --epochs 10
-```
-
 Il training verifica split, dimensioni, modello, fingerprint e copertura degli
 ID. Gli shard vengono indicizzati e letti tramite memory mapping; non si
 caricano in GPU tutti gli embedding del catalogo. In questa modalità non
 vengono caricati gli encoder né decodificate le immagini. Il seed immagine
 usa la metà visuale della cache e attraversa comunque la propria MLP.
 
-Per Marqo usare `--encoder siglip` e la cache generata dal relativo modello.
-Le cache restano feature prima della MLP: cambiare l'uscita della MLP a 1024
+Per Marqo usare `--encoder siglip`, la cache generata dal relativo modello e
+un CP FashionSigLIP da 1536 componenti. Gli esempi in fondo includono
+[FashionCLIP con cache](#training-fashionclip-con-cache) e
+[FashionSigLIP con cache e CP locale](#training-fashionsiglip-con-cache-e-cp-locale).
+Non serve impostare `--retrieval-dim 1536`: è già automatico con `siglip`.
+La MLP seed diventa `768 → 512 → 4096`, la MLP item `1536 → 512 → 1536`
+e le teste retrieval `4096 → 512 → 1536` con gli altri default invariati.
+Le cache restano feature prima della MLP: cambiare l'uscita della MLP
 non richiede di rigenerarle. Senza `W_cp`, le teste retrieval devono imparare
 embedding adatti anche al CP congelato; verificare questo allineamento in validation.
 
@@ -236,6 +231,30 @@ gradienti per il numero reale di esempi, anche nell'ultimo gruppo incompleto.
 Se un outfit contiene più item della stessa categoria, tutti contribuiscono
 a retrieval e fine-grained; il generatore conserva un solo slot per categoria.
 
+## Log di training e validation
+
+I log usano il formato di OutfitTransformer: `timestamp | INFO | messaggio`,
+con i campi `epoch`, `microbatch`, `loss` e `lr` nel messaggio. Il campo `phase`
+distingue training e validation. Ogni fase annuncia subito il numero di batch
+e stampa l'avanzamento ogni **50 batch**, più l'ultimo batch anche se la fase
+è più corta o non termina su un multiplo di 50.
+
+```text
+2026-11-16 12:20:37,325 | INFO | epoch=1/10 phase=train batches=1250
+2026-11-16 12:21:15,100 | INFO | epoch=1 microbatch=50/1250 loss=12.345678 lr=0.0001 phase=train
+2026-11-16 12:40:00,000 | INFO | epoch=1/10 phase=validation batches=125
+2026-11-16 12:40:20,000 | INFO | epoch=1 microbatch=50/125 loss=11.234567 lr=0.0001 phase=validation
+2026-11-16 12:41:00,000 | INFO | epoch=1 microbatch=125/125 loss=10.987654 lr=0.0001 phase=validation
+2026-11-16 12:41:05,000 | INFO | epoch=1/10 train_loss=12.000000 val_loss=11.000000 best_val_loss=11.000000
+```
+
+L'esempio omette i batch intermedi. `microbatch` conta i batch del loader,
+indipendentemente dall'accumulo dei gradienti; `loss` è la loss totale del
+batch appena elaborato. `lr` è il learning rate corrente dell'optimizer,
+riportato anche in validation senza aggiornare i pesi. Il riepilogo di fine
+epoca mostra le loss medie; tutte le componenti restano in `history.json`
+e nei checkpoint.
+
 ## Grafici e checkpoint a ogni epoca
 
 ```text
@@ -274,14 +293,8 @@ e le dimensioni effettive delle MLP, per controllare l'architettura alla ripresa
 I vecchi checkpoint con embedding da 256 e adattatore CP non sono compatibili
 con questa architettura: avviare un nuovo training.
 
-Per riprendere, mantenere gli stessi argomenti di modello/dati e aggiungere:
-
-```powershell
-python -m training.train_seed_to_outfit `
-  --embedding-root precomputed_embeddings/patrickjohncyh-fashion-clip `
-  --output-dir checkpoints/seed_cached --epochs 20 `
-  --resume checkpoints/seed_cached/epochs/seed_to_outfit_epoch_010.pt
-```
+Per riprendere, mantenere gli stessi argomenti di modello/dati e aggiungere
+`--resume` con il percorso del checkpoint, come nell'[esempio di ripresa](#ripresa-del-training).
 
 `--epochs` è il numero totale di epoche, non quelle aggiuntive. La ripresa
 ricrea i backbone congelati, valida tassonomia e configurazione e ripristina
@@ -295,7 +308,162 @@ un nuovo `best.pt` con pesi diversi non viene accettato come lo stesso scorer.
 
 ## Verifiche locali
 
-`python -m unittest discover -s tests` copre LoRA con un Qwen piccolo reale,
+La suite di test copre LoRA con un Qwen piccolo reale,
 gradienti attraverso CP congelato, aggiornamento delle MLP, equivalenza
 raw/cache, categorie ripetute, checkpoint riprendibili e PNG a ogni epoca.
 Non scarica Qwen 8B e non misura la qualità finale degli outfit.
+Il comando è nella sezione [Esecuzione dei test](#esecuzione-dei-test).
+
+## Esempi di comando
+
+Eseguire i comandi dalla root di Text2Outfit, nell'ambiente Python del progetto.
+Ogni esempio ha una versione Bash e una PowerShell con gli stessi argomenti.
+Sostituire i percorsi con quelli del proprio ambiente.
+
+### Installazione e avvio predefinito
+
+**Bash**
+
+```bash
+python -m pip install -r requirements.txt
+python -m training.train_seed_to_outfit --epochs 10
+```
+
+**PowerShell**
+
+```powershell
+python -m pip install -r requirements.txt
+python -m training.train_seed_to_outfit --epochs 10
+```
+
+### Help della CLI
+
+**Bash**
+
+```bash
+python -m training.train_seed_to_outfit --help
+```
+
+**PowerShell**
+
+```powershell
+python -m training.train_seed_to_outfit --help
+```
+
+### Preparazione separata del CP
+
+Prepara il CP FashionCLIP predefinito senza avviare il training.
+
+**Bash**
+
+```bash
+python -m model.compatibility
+```
+
+**PowerShell**
+
+```powershell
+python -m model.compatibility
+```
+
+### Training con CP locale
+
+**Bash**
+
+```bash
+python -m training.train_seed_to_outfit \
+  --cp-repo "percorso/OutfitTransformer" \
+  --cp-checkpoint "percorso/checkpoint-cp/best.pt" \
+  --epochs 10
+```
+
+**PowerShell**
+
+```powershell
+python -m training.train_seed_to_outfit `
+  --cp-repo "percorso/OutfitTransformer" `
+  --cp-checkpoint "percorso/checkpoint-cp/best.pt" `
+  --epochs 10
+```
+
+### Training FashionCLIP con cache
+
+**Bash**
+
+```bash
+python -m training.train_seed_to_outfit \
+  --embedding-root precomputed_embeddings/patrickjohncyh-fashion-clip \
+  --output-dir checkpoints/seed_cached --epochs 10
+```
+
+**PowerShell**
+
+```powershell
+python -m training.train_seed_to_outfit `
+  --embedding-root precomputed_embeddings/patrickjohncyh-fashion-clip `
+  --output-dir checkpoints/seed_cached --epochs 10
+```
+
+### Training FashionSigLIP con cache e CP locale
+
+Questo esempio usa il repository OutfitTransformer accanto a Text2Outfit e il
+CP locale dell'epoca 118. Aggiornare il percorso se si sceglie un'altra epoca.
+L'output item e retrieval è automaticamente da 1536 componenti.
+
+**Bash**
+
+```bash
+python -m training.train_seed_to_outfit \
+  --encoder siglip \
+  --embedding-root ../OutfitTransformer/huggingface/precomputed_embeddings/fashionSigLIP \
+  --cp-repo ../OutfitTransformer \
+  --cp-checkpoint ../OutfitTransformer/checkpoints/cp_precomputed_fashionSigLIP/epochs/cp_epoch_118.pt \
+  --output-dir checkpoints/seed_siglip --epochs 10
+```
+
+**PowerShell**
+
+```powershell
+python -m training.train_seed_to_outfit `
+  --encoder siglip `
+  --embedding-root ../OutfitTransformer/huggingface/precomputed_embeddings/fashionSigLIP `
+  --cp-repo ../OutfitTransformer `
+  --cp-checkpoint ../OutfitTransformer/checkpoints/cp_precomputed_fashionSigLIP/epochs/cp_epoch_118.pt `
+  --output-dir checkpoints/seed_siglip --epochs 10
+```
+
+### Ripresa del training
+
+Riprende l'esempio FashionCLIP con cache dall'epoca 10 fino a 20 epoche totali.
+
+**Bash**
+
+```bash
+python -m training.train_seed_to_outfit \
+  --embedding-root precomputed_embeddings/patrickjohncyh-fashion-clip \
+  --output-dir checkpoints/seed_cached --epochs 20 \
+  --resume checkpoints/seed_cached/epochs/seed_to_outfit_epoch_010.pt
+```
+
+**PowerShell**
+
+```powershell
+python -m training.train_seed_to_outfit `
+  --embedding-root precomputed_embeddings/patrickjohncyh-fashion-clip `
+  --output-dir checkpoints/seed_cached --epochs 20 `
+  --resume checkpoints/seed_cached/epochs/seed_to_outfit_epoch_010.pt
+```
+
+### Esecuzione dei test
+
+**Bash**
+
+```bash
+python -m unittest discover -s tests
+```
+
+**PowerShell**
+
+```powershell
+python -m unittest discover -s tests
+```

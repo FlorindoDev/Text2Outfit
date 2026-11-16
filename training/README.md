@@ -38,7 +38,7 @@ I comandi di installazione e training sono raccolti negli
 [esempi in fondo alla pagina](#esempi-di-comando), ciascuno nelle versioni
 Bash e PowerShell. Vanno eseguiti dalla root del progetto, nell'ambiente Python.
 
-Il default usa Qwen3 Embedding 8B, FashionCLIP, seed immagine, batch size 1,
+Il default usa Qwen3 Embedding 8B, FashionCLIP, seed immagine, batch size 2,
 4 microbatch per aggiornamento e gradient checkpointing. Usa CUDA se
 disponibile, altrimenti CPU. Su CUDA con supporto BF16, solo il backbone
 Qwen usa BF16; adattatori e MLP restano FP32. Negli altri casi usa FP32.
@@ -116,7 +116,7 @@ specificato un valore, con il comportamento descritto nella tabella.
 | `--output-dir` | Cartella del run: configurazione, architettura, metriche, checkpoint e grafici. | `checkpoints/seed_to_outfit` |
 | `--resume` | Checkpoint di training da cui ripristinare parametri allenabili, optimizer, storico e stati RNG. | `None` — avvia un nuovo training. |
 | `--epochs` | Numero totale di epoche da raggiungere, anche quando si riprende un training. | `10` |
-| `--batch-size` | Numero di outfit per batch nei loader di training e validation. | `1` |
+| `--batch-size` | Numero di outfit per batch nei loader di training e validation. | `2` |
 | `--accumulation-steps` | Numero di microbatch su cui accumulare i gradienti prima di un aggiornamento dell'optimizer. | `4` |
 | `--learning-rate` | Learning rate di AdamW per i parametri allenabili. | `0.0001` |
 | `--weight-decay` | Weight decay di AdamW. | `0.01` |

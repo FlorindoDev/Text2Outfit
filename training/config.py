@@ -16,7 +16,7 @@ class TrainingConfig:
     gradient_accumulation_steps: int = 4
     max_grad_norm: float = 1.0
     resume: Path | None = None
-    batch_size: int = 128
+    batch_size: int = 2
     negatives_per_item: int = 4
     seed: int = 42
     num_workers: int = 0

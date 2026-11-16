@@ -44,7 +44,7 @@ flowchart TD
     ITEM["Immagine e testo degli articoli"] --> ENCODER["MultimodalEncoder: embedding f"]
     RET --> RL["Outfit Retrieval Loss"]
     ENCODER --> RL
-    RET --> C["Modello C congelato: ingresso diretto a 1024 componenti"]
+    RET --> C["Modello C congelato: ingresso diretto a 1024 / 1536 componenti"]
     C --> CP["CP Loss: negativo dello score"]
     H --> HC["MLP presenza: un logit per categoria"]
     H --> FG["MLP sottocategoria: C_i logits"]

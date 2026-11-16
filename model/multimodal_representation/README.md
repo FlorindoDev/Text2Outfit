@@ -206,10 +206,10 @@ visual_encoder = MarqoFashionSigLIPVisualEncoder().eval()
 text_encoder = MarqoFashionSigLIPTextEncoder(
     backbone=visual_encoder.backbone,
 ).eval()
-mlp = MLP(input_dim=1536, output_dim=1024, hidden_dims=[512])
+mlp = MLP(input_dim=1536, output_dim=1536, hidden_dims=[512])
 encoder = MultimodalEncoder(visual_encoder, text_encoder, mlp).eval()
 with torch.inference_mode():
-    embeddings = encoder(images, ["white shirt"])  # [1, 1024]
+    embeddings = encoder(images, ["white shirt"])  # [1, 1536]
 ```
 
 ## Modularità e limiti

@@ -53,6 +53,26 @@ class CPDownloadTests(unittest.TestCase):
         self.assertEqual(download.call_count, 1)
         self.assertTrue(download.call_args.kwargs["local_files_only"])
 
+    def test_siglip_requires_its_own_checkpoint_before_any_download(self):
+        with patch("model.compatibility.download.urllib.request.urlopen") as source, patch("model.compatibility.download.hf_hub_download") as weights:
+            with self.assertRaisesRegex(ValueError, "SigLIP.*--cp-checkpoint"):
+                resolve_cp_assets(replace(self.config, encoder="siglip"))
+        source.assert_not_called()
+        weights.assert_not_called()
+
+    def test_siglip_accepts_explicit_local_or_remote_checkpoint(self):
+        self.local_source()
+        config = replace(self.config, encoder="siglip", cp_checkpoint=self.checkpoint)
+        with patch("model.compatibility.download.hf_hub_download") as download:
+            _, checkpoint = resolve_cp_assets(config)
+        self.assertEqual(checkpoint, self.checkpoint.resolve())
+        download.assert_not_called()
+        config = replace(config, cp_checkpoint=None, cp_weights_file="checkpoints/cp_marqo/best.pt")
+        with patch("model.compatibility.download.hf_hub_download", return_value=str(self.checkpoint)) as download:
+            _, checkpoint = resolve_cp_assets(config)
+        self.assertEqual(checkpoint, self.checkpoint.resolve())
+        self.assertEqual(download.call_args.kwargs["filename"], config.cp_weights_file)
+
     def test_downloads_model_code_and_one_best_checkpoint_only(self):
         archive = self.archive({
             "repo/model/__init__.py": "# package",

@@ -40,8 +40,8 @@ class ModelConfig:
     seed_hidden_dims: tuple[int, ...] = (512,)
 
     # Retrieval (11 MLP): H -> retrieval_hidden_dims -> D. Default: 4096 -> 512 -> 1024.
-    # D e' la dimensione condivisa dalle predizioni retrieval e dagli item del catalogo.
-    retrieval_dim: int = 1024
+    # D condivisa da retrieval, item e CP: None sceglie 1024 FashionCLIP / 1536 SigLIP.
+    retrieval_dim: int | None = None
     retrieval_hidden_dims: tuple[int, ...] = (512,)
 
     # Presenza categoria (11 MLP): H -> category_hidden_dims -> 1. Default: 4096 -> 512 -> 1.
@@ -55,7 +55,7 @@ class ModelConfig:
     item_hidden_dims: tuple[int, ...] = (512,)
 
     # --- CP congelato: riceve direttamente gli embedding retrieval, senza adattatore ---
-    # retrieval_dim deve coincidere con model_dim del checkpoint CP (1024 nel default).
+    # retrieval_dim deve coincidere con model_dim del checkpoint CP (1024 / 1536).
     cp_repo: Path = Path(".cache/outfit_transformer")
     cp_checkpoint: Path | None = None
     cp_source_url: str = "https://codeload.github.com/FlorindoDev/OutfitTransformer/zip/refs/heads/main-branch"
@@ -81,6 +81,12 @@ class ModelConfig:
         if self.encoder_model_name is not None:
             return self.encoder_model_name
         return FASHIONCLIP_MODEL_NAME if self.encoder == "fashionclip" else SIGLIP_MODEL_NAME
+
+    @property
+    def resolved_retrieval_dim(self) -> int:
+        if self.retrieval_dim is not None:
+            return self.retrieval_dim
+        return 1024 if self.encoder == "fashionclip" else 1536
 
     @property
     def cp_checkpoint_path(self) -> Path:
@@ -114,7 +120,7 @@ class ModelConfig:
             raise ValueError("the complete outfit model requires frozen visual/text encoders")
         if type(self.category_embedding_dim) is not int or self.category_embedding_dim <= 0:
             raise ValueError("category_embedding_dim must be a positive integer")
-        if any(type(value) is not int or value <= 0 for value in (self.retrieval_dim, self.lora_rank, self.lora_alpha)):
+        if any(type(value) is not int or value <= 0 for value in (self.resolved_retrieval_dim, self.lora_rank, self.lora_alpha)):
             raise ValueError("retrieval_dim and LoRA rank/alpha must be positive integers")
         for name, dimensions in (
             ("seed", self.seed_hidden_dims), ("retrieval", self.retrieval_hidden_dims),

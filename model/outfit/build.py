@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import torch
 
 from .category_query_embeddings import CategoryQueryEmbeddings, OUTFIT_CATEGORIES
@@ -24,6 +26,8 @@ def build_model(
 ) -> Text2OutfitModel:
     """Read backbone/taxonomy widths, then explicitly build each MLP family."""
     config.validate()
+    retrieval_dim = config.resolved_retrieval_dim
+    config = replace(config, retrieval_dim=retrieval_dim)
     if len(subcategories) != len(OUTFIT_CATEGORIES):
         raise ValueError("provide one subcategory vocabulary per outfit category")
     cp_repo, cp_checkpoint = resolve_cp_assets(config)
@@ -61,8 +65,8 @@ def build_model(
         )
 
     seed_mlp = MLP(visual_dim, llm_dim, config.seed_hidden_dims)
-    item_mlp = MLP(visual_dim + text_dim, config.retrieval_dim, config.item_hidden_dims)
-    retrieval_heads = [MLP(llm_dim, config.retrieval_dim, config.retrieval_hidden_dims) for _ in OUTFIT_CATEGORIES]
+    item_mlp = MLP(visual_dim + text_dim, retrieval_dim, config.item_hidden_dims)
+    retrieval_heads = [MLP(llm_dim, retrieval_dim, config.retrieval_hidden_dims) for _ in OUTFIT_CATEGORIES]
     category_heads = [MLP(llm_dim, 1, config.category_hidden_dims) for _ in OUTFIT_CATEGORIES]
     fine_grained_heads = [
         MLP(llm_dim, max(1, len(labels)), config.fine_grained_hidden_dims)
@@ -76,7 +80,7 @@ def build_model(
     )
     item_encoder = MultimodalEncoder(visual, textual, item_mlp)
     compatibility = OutfitCompatibility.from_checkpoint(
-        cp_repo, cp_checkpoint, config.retrieval_dim,
+        cp_repo, cp_checkpoint, retrieval_dim,
     )
     return Text2OutfitModel(
         generator, item_encoder, compatibility, subcategories, config=config,

@@ -50,7 +50,7 @@ I default in `ModelConfig` sono:
 | `cp_checkpoint` | `None`: cerca nel repository locale, poi nella cache Hub, infine scarica |
 | `cp_source_url` | Archivio GitHub del branch `main-branch` |
 | `cp_weights_repo` | `FlorindoDev/OutfitTransformer-weights` |
-| `cp_weights_file` | `checkpoints/nondisjoint/cp_precomputed-flashionclip/best.pt` |
+| `cp_weights_file` | `checkpoints/nondisjoint/cp_precomputed-flashionclip/best.pt` (FashionCLIP; con SigLIP specificare il relativo CP) |
 | `cp_cache` | `.cache/huggingface-cp` |
 
 Per preparare solo il CP, senza caricare Qwen o avviare il training:
@@ -76,7 +76,7 @@ importabili anche da `model`, per architettura, backbone, LoRA e loss.
 | Iperparametro | Default |
 |---|---|
 | `category_embedding_dim` | `4096`: larghezza di ciascuna delle 11 query |
-| `retrieval_dim` | `1024`: uscita condivisa da retrieval, MLP item e ingresso CP |
+| `retrieval_dim` | `None`: uscita automatica `1024` per FashionCLIP / `1536` per SigLIP, condivisa da retrieval, MLP item e ingresso CP |
 | `seed_hidden_dims` | `(512,)` |
 | `retrieval_hidden_dims` | `(512,)` |
 | `category_hidden_dims` | `(512,)` |
@@ -130,12 +130,17 @@ Sono **35 MLP** complessive. Le tre teste per categoria hanno pesi indipendenti.
 Ogni conteggio include pesi e bias dei layer lineari; ReLU non aggiunge parametri.
 
 Il builder legge `H` dall'LLM e verifica che corrisponda a
-`category_embedding_dim`, legge `V/T` dagli encoder o dalla cache e `P` dal
-checkpoint CP. `retrieval_dim` deve coincidere con `P`: il CP riceve direttamente
+`category_embedding_dim` e legge `V/T` dagli encoder o dalla cache.
+`resolved_retrieval_dim` sceglie `1024` con FashionCLIP e `1536` con SigLIP
+quando `retrieval_dim` è `None`; un valore esplicito ha precedenza. Il builder
+salva la dimensione effettiva in `model.config.retrieval_dim`.
+Il checkpoint CP deve avere la stessa larghezza: il CP riceve direttamente
 gli embedding generati e il caricamento rifiuta dimensioni incompatibili.
 Cambiando LLM, impostare anche `category_embedding_dim` alla
 larghezza del nuovo checkpoint. Con Marqo, `V=T=768`: seed e item partono quindi
-rispettivamente da 768 e 1536 feature. Se una categoria non ha classi nella
+rispettivamente da 768 e 1536 feature; item e retrieval escono a 1536,
+usando un CP Marqo da 1536 indicato con `cp_checkpoint` o `cp_weights_file`.
+Se una categoria non ha classi nella
 tassonomia caricata, la sua testa ha una sola uscita inutilizzata.
 
 Questa variante omette `W_cp`, presente nell'Eq. (4) del paper. Le teste

@@ -14,12 +14,17 @@ from pathlib import Path, PurePosixPath
 from huggingface_hub import hf_hub_download
 from huggingface_hub.errors import LocalEntryNotFoundError
 
-from ..config import DEFAULT_MODEL_CONFIG, ModelConfig
+from ..config import CP_CHECKPOINT_RELATIVE_PATH, DEFAULT_MODEL_CONFIG, ModelConfig
 
 
 def resolve_cp_assets(config: ModelConfig = DEFAULT_MODEL_CONFIG) -> tuple[Path, Path]:
     """Return local source and one best.pt; explicit checkpoints must already exist."""
     config.validate()
+    if config.encoder == "siglip" and config.cp_checkpoint is None and config.cp_weights_file == CP_CHECKPOINT_RELATIVE_PATH.as_posix():
+        raise ValueError(
+            "the default CP checkpoint uses FashionCLIP (1024), not SigLIP (1536); "
+            "provide a SigLIP CP via --cp-checkpoint or --cp-weights-file"
+        )
     checkpoint = config.cp_checkpoint_path.expanduser()
     if config.cp_checkpoint is not None and not checkpoint.is_file():
         raise FileNotFoundError(f"CP checkpoint not found: {checkpoint}")

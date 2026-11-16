@@ -53,7 +53,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--learning-rate", type=float, default=DEFAULT_TRAINING_CONFIG.learning_rate)
     parser.add_argument("--weight-decay", type=float, default=DEFAULT_TRAINING_CONFIG.weight_decay)
     parser.add_argument("--negatives-per-item", type=int, default=DEFAULT_TRAINING_CONFIG.negatives_per_item)
-    parser.add_argument("--retrieval-dim", type=int, default=DEFAULT_MODEL_CONFIG.retrieval_dim)
+    parser.add_argument("--retrieval-dim", type=int, default=DEFAULT_MODEL_CONFIG.retrieval_dim,
+                        help="shared retrieval/item/CP width; default: 1024 for FashionCLIP, 1536 for SigLIP")
     parser.add_argument("--hidden-dim", type=int, default=None, help="override every MLP's hidden layers with one layer of this width")
     parser.add_argument("--seed-mode", choices=("image", "text"), default=DEFAULT_MODEL_CONFIG.seed_mode)
     parser.add_argument("--prompt", default=DEFAULT_TRAINING_CONFIG.prompt)
@@ -146,6 +147,7 @@ def main(argv: list[str] | None = None) -> None:
     validation_loader = DataLoader(datasets["validation"], batch_size=args.batch_size,
                                    collate_fn=collate_seed_outfits, num_workers=args.num_workers)
     metadata = {key: value for key, value in vars(args).items() if key not in ("resume", "output_dir", "epochs")}
+    metadata["retrieval_dim"] = model.config.retrieval_dim
     metadata["cache_fingerprints"] = {split: cache.metadata.get("model_fingerprint") for split, cache in caches.items()}
     train(model, train_loader, validation_loader, training_config, run_config=metadata)
 

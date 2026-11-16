@@ -19,6 +19,7 @@ from model.outfit.text2outfit import LOSS_NAMES, Text2OutfitModel
 from .config import TrainingConfig
 
 LOGGER = logging.getLogger("training.seed_to_outfit")
+LOG_EVERY = 50
 
 
 def _save(payload: Any, path: Path, *, json_file: bool = False) -> None:
@@ -112,6 +113,7 @@ def train(
     (output / "architecture.txt").write_text(model.architecture_summary(), encoding="utf-8")
 
     for epoch in range(start_epoch, config.epochs + 1):
+        LOGGER.info("epoch=%d/%d phase=train batches=%d", epoch, config.epochs, len(train_loader))
         model.train()
         sums = dict.fromkeys(LOSS_NAMES, 0.0)
         examples = 0
@@ -137,12 +139,19 @@ def train(
                 optimizer.zero_grad(set_to_none=True)
                 group_examples = 0
                 global_step += 1
+            if (index + 1) % LOG_EVERY == 0 or index + 1 == len(train_loader):
+                LOGGER.info(
+                    "epoch=%d microbatch=%d/%d loss=%.6f lr=%.8g phase=train",
+                    epoch, index + 1, len(train_loader),
+                    float(losses["total"].detach()), optimizer.param_groups[0]["lr"],
+                )
         train_metrics = {name: value / examples for name, value in sums.items()}
+        LOGGER.info("epoch=%d/%d phase=validation batches=%d", epoch, config.epochs, len(validation_loader))
         model.eval()
         sums = dict.fromkeys(LOSS_NAMES, 0.0)
         examples = 0
         with torch.no_grad():
-            for batch in validation_loader:
+            for index, batch in enumerate(validation_loader, start=1):
                 losses = model.compute_losses(batch)
                 if not all(bool(torch.isfinite(loss).all()) for loss in losses.values()):
                     raise FloatingPointError(f"non-finite validation loss at epoch {epoch}")
@@ -150,6 +159,12 @@ def train(
                 examples += size
                 for name in LOSS_NAMES:
                     sums[name] += float(losses[name]) * size
+                if index % LOG_EVERY == 0 or index == len(validation_loader):
+                    LOGGER.info(
+                        "epoch=%d microbatch=%d/%d loss=%.6f lr=%.8g phase=validation",
+                        epoch, index, len(validation_loader),
+                        float(losses["total"]), optimizer.param_groups[0]["lr"],
+                    )
         validation_metrics = {name: value / examples for name, value in sums.items()}
         history["epochs"].append(epoch)
         history["train"].append(train_metrics)
@@ -176,5 +191,8 @@ def train(
             temporary.replace(output / "best.pt")
         _save(history, output / "history.json", json_file=True)
         save_loss_plots(history, output / "plots", epoch)
-        LOGGER.info("epoch=%d/%d train=%s validation=%s", epoch, config.epochs, train_metrics, validation_metrics)
+        LOGGER.info(
+            "epoch=%d/%d train_loss=%.6f val_loss=%.6f best_val_loss=%.6f",
+            epoch, config.epochs, train_metrics["total"], validation_metrics["total"], best_loss,
+        )
     return history

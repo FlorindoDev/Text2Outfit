@@ -29,6 +29,7 @@ from training import (
     collate_seed_outfits, train,
 )
 from training.data import PrecomputedItemFeatures, SeedOutfitDataset
+from model.outfit.text2outfit import LOSS_NAMES
 
 
 class Visual(VisualEncoder):
@@ -253,6 +254,36 @@ class TrainingTests(unittest.TestCase):
             train(other, large, large, TrainingConfig(output_dir=Path(directory)/"large", epochs=1, gradient_accumulation_steps=1))
         for actual, expected in zip(self.model.parameters(), other.parameters()):
             torch.testing.assert_close(actual, expected, atol=2e-6, rtol=2e-5)
+
+    def test_training_and_validation_log_every_50_batches_and_the_last_batch(self):
+        parameter = next(p for p in self.model.parameters() if p.requires_grad)
+
+        def compute_losses(_batch):
+            loss = parameter.flatten()[0] * 0 + (2.0 if torch.is_grad_enabled() else 3.0)
+            return dict.fromkeys(LOSS_NAMES, loss)
+
+        for batch_count in (49, 50, 51, 100):
+            with (
+                self.subTest(batch_count=batch_count),
+                tempfile.TemporaryDirectory() as directory,
+                patch.object(self.model, "compute_losses", side_effect=compute_losses),
+                patch("training.plots.save_loss_plots"),
+                self.assertLogs("training.seed_to_outfit", level="INFO") as captured,
+            ):
+                loader = DataLoader([self.example] * batch_count, batch_size=1,
+                                    collate_fn=collate_seed_outfits)
+                train(self.model, loader, loader, TrainingConfig(output_dir=Path(directory), epochs=1))
+            messages = [record.getMessage() for record in captured.records]
+            batches = sorted(set(range(50, batch_count + 1, 50)) | {batch_count})
+            expected = [
+                f"epoch=1 microbatch={batch}/{batch_count} loss={loss:.6f} lr=0.0001 phase={phase}"
+                for phase, loss in (("train", 2.0), ("validation", 3.0))
+                for batch in batches
+            ]
+            self.assertEqual([message for message in messages if "microbatch=" in message], expected)
+            self.assertEqual(messages[0], f"epoch=1/1 phase=train batches={batch_count}")
+            self.assertEqual(messages[1 + len(batches)], f"epoch=1/1 phase=validation batches={batch_count}")
+            self.assertEqual(messages[-1], "epoch=1/1 train_loss=2.000000 val_loss=3.000000 best_val_loss=3.000000")
 
 
 class CacheTests(unittest.TestCase):

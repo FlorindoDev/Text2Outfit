@@ -73,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
     model_config = replace(
         DEFAULT_MODEL_CONFIG, llm_model_name=args.llm, llm_cache=args.llm_cache,
         category_embedding_dim=args.category_embedding_dim,
